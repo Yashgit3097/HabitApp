@@ -20,7 +20,7 @@ export const BottomNav = () => {
     },
     {
       id: 'social',
-      label: 'Sankalp Groups',
+      label: 'Groups',
       path: '/social',
       icon: Users
     },
