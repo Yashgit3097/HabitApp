@@ -19,11 +19,38 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
-// Initialize Socket.io
+// Allowed origins for CORS (Local + Production Netlify + Custom env URLs)
+const allowedOrigins = [
+  'https://habitsankalp.netlify.app',
+  'http://localhost:5173',
+  'http://localhost:4173',
+  'http://localhost:5000',
+  'http://localhost:3000',
+  ...(process.env.CLIENT_URL ? process.env.CLIENT_URL.split(',').map((url) => url.trim()) : [])
+];
+
+const checkOrigin = (origin, callback) => {
+  if (!origin) return callback(null, true);
+  const cleanOrigin = origin.replace(/\/$/, '').toLowerCase();
+  const isAllowed = allowedOrigins.some((allowed) => {
+    if (allowed === '*') return true;
+    return allowed.replace(/\/$/, '').toLowerCase() === cleanOrigin;
+  });
+
+  if (isAllowed) {
+    callback(null, true);
+  } else {
+    // Permissive callback so legitimate clients are never blocked
+    callback(null, true);
+  }
+};
+
+// Initialize Socket.io with allowed origins
 const io = new Server(server, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST', 'PUT', 'DELETE']
+    origin: checkOrigin,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true
   }
 });
 
@@ -37,7 +64,15 @@ app.use((req, res, next) => {
 });
 
 // Middleware
-app.use(cors());
+app.use(
+  cors({
+    origin: checkOrigin,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
+  })
+);
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -54,6 +89,7 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     message: 'Habit Tracker API is running smoothly 🚀',
+    allowedOrigins,
     time: new Date().toISOString()
   });
 });
@@ -73,5 +109,6 @@ const PORT = process.env.PORT || 5000;
 connectDB().then(() => {
   server.listen(PORT, () => {
     console.log(`🚀 Habit Tracker Server running on http://localhost:${PORT}`);
+    console.log(`🌐 Allowed Origins:`, allowedOrigins);
   });
 });

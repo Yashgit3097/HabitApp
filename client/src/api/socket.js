@@ -2,13 +2,17 @@ import { io } from 'socket.io-client';
 
 let socket = null;
 
+// Render backend URL directly configured
+const BACKEND_URL = 'https://habitapp-al74.onrender.com';
+
 export const getSocket = () => {
   if (!socket) {
-    socket = io('http://localhost:5000', {
+    socket = io(BACKEND_URL, {
       autoConnect: true,
       reconnection: true,
       reconnectionAttempts: 5,
-      reconnectionDelay: 1000
+      reconnectionDelay: 1000,
+      transports: ['websocket', 'polling']
     });
 
     socket.on('connect', () => {
