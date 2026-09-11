@@ -210,6 +210,14 @@ export const MemberReportModal = ({ member, habits = [], todayLogs = [], selecte
                       {isCompleted ? '✅ Yes, Done' : '❌ No, Not yet'}
                     </span>
                   )}
+
+                  {habit.type === 'time_of_day' && (
+                    <span className="font-extrabold text-[#022c22]">
+                      {isCompleted
+                        ? `⏰ Checked in: ${value || habit.targetValue || 'Done'}`
+                        : `Pending (Target: ${habit.targetValue || '05:00 AM'})`}
+                    </span>
+                  )}
                 </div>
               </div>
             ))

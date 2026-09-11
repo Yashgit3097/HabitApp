@@ -74,9 +74,27 @@ const HABIT_TYPES = [
     icon: CheckCircle2
   },
   {
+    id: 'yes_no',
+    title: 'Yes / No Question',
+    description: 'Daily reflection or affirmation question with instant Yes/No buttons',
+    icon: HelpCircle
+  },
+  {
+    id: 'time_of_day',
+    title: 'Specific Time (e.g. 5:00 AM, 12:00 PM)',
+    description: 'Set and log a specific clock time (Wakeup, Sleep, Puja)',
+    icon: Clock
+  },
+  {
+    id: 'count',
+    title: 'Numeric Count (10, 20, 50...)',
+    description: 'Track reps, dandvats, glasses with direct manual input box',
+    icon: Hash
+  },
+  {
     id: 'time_target',
-    title: 'Target Time (e.g. 2:00)',
-    description: 'Set a daily duration goal (hours & minutes)',
+    title: 'Duration Target (e.g. 45 mins)',
+    description: 'Set daily duration with direct minutes input & progress bar',
     icon: Clock
   },
   {
@@ -84,18 +102,6 @@ const HABIT_TYPES = [
     title: 'Stopwatch / Timer',
     description: 'Start watch, pause, stop & log live elapsed time',
     icon: Timer
-  },
-  {
-    id: 'count',
-    title: 'Numeric Count (10, 20...)',
-    description: 'Track reps, glasses, steps, or custom units',
-    icon: Hash
-  },
-  {
-    id: 'yes_no',
-    title: 'Yes / No Question',
-    description: 'Daily reflection or affirmation question',
-    icon: HelpCircle
   }
 ];
 
@@ -140,6 +146,7 @@ export const CreateHabitModal = () => {
   const [targetMinutes, setTargetMinutes] = useState('0');
   const [countTarget, setCountTarget] = useState('10');
   const [countUnit, setCountUnit] = useState('reps');
+  const [targetTimeOfDay, setTargetTimeOfDay] = useState('05:00 AM');
   const [questionText, setQuestionText] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -178,6 +185,7 @@ export const CreateHabitModal = () => {
     setTargetMinutes('0');
     setCountTarget('10');
     setCountUnit('reps');
+    setTargetTimeOfDay('05:00 AM');
     setQuestionText('');
     setErrorMsg('');
   };
@@ -204,6 +212,9 @@ export const CreateHabitModal = () => {
     } else if (type === 'timer') {
       targetValue = parseInt(targetMinutes || '30', 10);
       targetUnit = 'mins';
+    } else if (type === 'time_of_day') {
+      targetValue = targetTimeOfDay.trim() || '05:00 AM';
+      targetUnit = 'time_of_day';
     }
 
     const matchedGroup = allUserGroups.find((g) => (g.id || g._id) === selectedGroupId);
@@ -219,7 +230,7 @@ export const CreateHabitModal = () => {
       targetUnit,
       groupId: selectedGroupId || null,
       groupName: matchedGroup ? matchedGroup.name : '',
-      question: questionText.trim() || (type === 'yes_no' ? `Did you do ${title.trim()} today?` : '')
+      question: questionText.trim() || (type === 'yes_no' ? `Did you do ${title.trim()} today?` : (type === 'time_of_day' ? `Target Time: ${targetTimeOfDay}` : ''))
     });
   };
 
@@ -433,6 +444,39 @@ export const CreateHabitModal = () => {
                 placeholder={`e.g. Did you complete ${title || 'your meditation'} today?`}
                 className="w-full px-3 py-2 bg-white rounded-xl border border-emerald-200 text-sm font-medium text-[#022c22]"
               />
+            </div>
+          )}
+
+          {type === 'time_of_day' && (
+            <div className="p-4 bg-emerald-50/70 rounded-2xl border border-emerald-200 space-y-2.5">
+              <label className="block text-xs font-bold uppercase tracking-wider text-[#047857]">
+                Set Target Time (e.g. 5:00 AM, 12:00 PM)
+              </label>
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  type="text"
+                  value={targetTimeOfDay}
+                  onChange={(e) => setTargetTimeOfDay(e.target.value)}
+                  placeholder="e.g. 05:00 AM"
+                  className="flex-1 min-w-[130px] px-3 py-2 bg-white rounded-xl border border-emerald-200 text-sm font-black text-[#022c22]"
+                />
+                <div className="flex items-center gap-1 flex-wrap">
+                  {['05:00 AM', '06:00 AM', '12:00 PM', '10:00 PM', '12:00 AM'].map((preset) => (
+                    <button
+                      type="button"
+                      key={preset}
+                      onClick={() => setTargetTimeOfDay(preset)}
+                      className={`px-2 py-1 rounded-lg text-[10px] font-black transition-all cursor-pointer border ${
+                        targetTimeOfDay === preset
+                          ? 'bg-[#047857] text-white border-[#047857]'
+                          : 'bg-white text-emerald-900 border-emerald-200 hover:bg-emerald-100'
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 

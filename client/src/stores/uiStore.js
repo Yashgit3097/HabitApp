@@ -13,6 +13,19 @@ export const useUIStore = create((set, get) => ({
   openCreateGroup: () => set({ isCreateGroupOpen: true }),
   closeCreateGroup: () => set({ isCreateGroupOpen: false }),
 
+  // Toast System for fast visual feedback
+  toast: null,
+  showToast: (message, type = 'success') => {
+    set({ toast: { id: Date.now(), message, type } });
+    setTimeout(() => {
+      const current = get().toast;
+      if (current && Date.now() - current.id >= 2900) {
+        set({ toast: null });
+      }
+    }, 3000);
+  },
+  hideToast: () => set({ toast: null }),
+
   // Notifications Drawer
   isNotificationDrawerOpen: false,
   openNotificationDrawer: () => set({ isNotificationDrawerOpen: true }),
