@@ -4,9 +4,7 @@ import { collections } from '../../config/db.js';
 import { processUploadedFile } from '../../middleware/uploadMiddleware.js';
 
 const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET || 'super_secret_habit_tracker_jwt_key_2026_secure', {
-    expiresIn: '30d'
-  });
+  return jwt.sign({ id }, process.env.JWT_SECRET || 'super_secret_habit_tracker_jwt_key_2026_secure');
 };
 
 // @desc    Register a new user
