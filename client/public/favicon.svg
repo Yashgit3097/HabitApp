@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#064e3b" />
+      <stop offset="50%" stop-color="#047857" />
+      <stop offset="100%" stop-color="#065f46" />
+    </linearGradient>
+
+    <linearGradient id="emblemGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ecfdf5" />
+      <stop offset="40%" stop-color="#6ee7b7" />
+      <stop offset="100%" stop-color="#10b981" />
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" rx="118" ry="118" fill="url(#bgGrad)" />
+  <rect width="496" height="496" x="8" y="8" rx="110" ry="110" fill="none" stroke="#6ee7b7" stroke-width="4" opacity="0.5" />
+  
+  <!-- Minimalist Sankalp & Check Mark Emblem -->
+  <g>
+    <path
+      d="M256 108 C310 108 372 165 372 238 C372 318 296 376 256 404 C216 376 140 318 140 238 C140 165 202 108 256 108 Z"
+      fill="none"
+      stroke="url(#emblemGrad)"
+      stroke-width="26"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <path
+      d="M256 172 L268 206 L302 218 L268 230 L256 264 L244 230 L210 218 L244 206 Z"
+      fill="#ecfdf5"
+    />
+    <path
+      d="M208 270 L242 304 L318 220"
+      fill="none"
+      stroke="#ffffff"
+      stroke-width="24"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </g>
+</svg>
