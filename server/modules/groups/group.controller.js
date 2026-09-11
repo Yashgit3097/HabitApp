@@ -125,42 +125,15 @@ export const getGroupDetails = async (req, res) => {
     // Fetch habits belonging to this group
     const allHabits = await collections.habits.find({ groupId: group.id || group._id, isArchived: false });
 
-    // Fetch logs for all members in this group's habits for targetDate from dailyLogs
+    // Fetch logs for all members in this group's habits for targetDate
     const targetDate = req.query.date || new Date().toISOString().split('T')[0];
     const groupHabitIds = allHabits.map((h) => (h.id || h._id).toString());
-    
-    // 1. Fetch from dailyLogs collection
-    const dailyRecords = await collections.dailyLogs.find({ date: targetDate });
-    const logsForGroupHabits = [];
-
-    if (dailyRecords && dailyRecords.length > 0) {
-      dailyRecords.forEach((rec) => {
-        if (rec.items && Array.isArray(rec.items)) {
-          rec.items.forEach((item) => {
-            const itemHabitId = (item.habitId || item.habitId?.toString() || '');
-            if (groupHabitIds.includes(itemHabitId)) {
-              logsForGroupHabits.push(item);
-            }
-          });
-        }
-      });
-    }
-
-    // 2. Also check legacy habitLogs for any records not yet migrated
-    const legacyLogs = await collections.habitLogs.find({ date: targetDate });
-    if (legacyLogs && legacyLogs.length > 0) {
-      legacyLogs.forEach((l) => {
-        const itemHabitId = (l.habitId ? l.habitId.toString() : '');
-        const alreadyIncluded = logsForGroupHabits.some(
-          (existing) =>
-            (existing.habitId?.toString() === itemHabitId) &&
-            (existing.userId?.toString() === (l.userId?.toString()))
-        );
-        if (groupHabitIds.includes(itemHabitId) && !alreadyIncluded) {
-          logsForGroupHabits.push(l);
-        }
-      });
-    }
+    // Fetch from habitLogs collection (Only stored when user actually logs/checks-in)
+    const habitLogs = (await collections.habitLogs.find({ date: targetDate })) || [];
+    const logsForGroupHabits = habitLogs.filter((l) => {
+      const itemHabitId = (l.habitId || l.habitId?.toString() || '');
+      return groupHabitIds.includes(itemHabitId);
+    });
 
     res.status(200).json({
       success: true,

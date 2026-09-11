@@ -275,6 +275,7 @@ export const collections = {
   users: new CollectionProxy('users'),
   habits: new CollectionProxy('habits'),
   habitLogs: new CollectionProxy('habit_logs'),
+  dailyLogs: new CollectionProxy('daily_logs'),
   groups: new CollectionProxy('groups'),
   notifications: new CollectionProxy('notifications')
 };
