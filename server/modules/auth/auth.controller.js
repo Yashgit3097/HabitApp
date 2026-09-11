@@ -141,6 +141,45 @@ export const updateProfile = async (req, res) => {
     const updatedUser = await collections.users.updateOne({ id: userId }, updates);
     const { password: _, ...userResponse } = updatedUser;
 
+    // Sync updated avatar & name across all groups the user is a member of
+    try {
+      const allGroups = await collections.groups.find();
+      for (const group of allGroups) {
+        if (group.members && group.members.some((m) => (m.userId || m.userId?.toString()) === userId.toString())) {
+          const newMembers = group.members.map((m) => {
+            if ((m.userId || m.userId?.toString()) === userId.toString()) {
+              return {
+                ...m,
+                name: updates.name || m.name,
+                avatar: updates.avatar || m.avatar
+              };
+            }
+            return m;
+          });
+          await collections.groups.updateOne({ id: group.id || group._id }, { members: newMembers });
+
+          if (req.io) {
+            req.io.to(`group:${group.id || group._id}`).emit('group_habit_updated', {
+              groupId: group.id || group._id
+            });
+          }
+        }
+      }
+
+      // Also update creator avatar in habits
+      if (updates.avatar || updates.name) {
+        const habitUpdates = {};
+        if (updates.avatar) habitUpdates.creatorAvatar = updates.avatar;
+        if (updates.name) habitUpdates.creatorName = updates.name;
+        const userHabits = await collections.habits.find({ userId: userId.toString() });
+        for (const h of userHabits) {
+          await collections.habits.updateOne({ id: h.id || h._id }, habitUpdates);
+        }
+      }
+    } catch (syncErr) {
+      console.error('Error syncing profile update to groups & habits:', syncErr);
+    }
+
     res.status(200).json({
       success: true,
       message: 'Profile updated successfully',

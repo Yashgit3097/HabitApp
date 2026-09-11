@@ -1,9 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { Settings as SettingsIcon, User, Camera, Shield, LogOut, Check, Sparkles } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuthStore } from '../../stores/authStore';
 import { Avatar } from '../../components/common/Avatar';
 
 export const Settings = () => {
+  const queryClient = useQueryClient();
   const { user, updateProfile, logout, isLoading } = useAuthStore();
 
   const [name, setName] = useState(user?.name || '');
@@ -36,6 +38,10 @@ export const Settings = () => {
     const res = await updateProfile(formData);
     if (res.success) {
       setSuccessMsg('Profile updated successfully! ✨');
+      // Invalidate React Query caches so all group matrices and habits update immediately
+      queryClient.invalidateQueries({ queryKey: ['groupDetails'] });
+      queryClient.invalidateQueries({ queryKey: ['userGroups'] });
+      queryClient.invalidateQueries({ queryKey: ['habits'] });
       setTimeout(() => setSuccessMsg(''), 3000);
     }
   };

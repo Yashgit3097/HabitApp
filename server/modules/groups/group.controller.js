@@ -66,10 +66,24 @@ export const getUserGroups = async (req, res) => {
   try {
     const userId = req.user.id || req.user._id;
     const allGroups = await collections.groups.find();
+    const allUsers = await collections.users.find();
 
-    const userGroups = allGroups.filter((g) =>
-      g.members && g.members.some((m) => m.userId === userId)
-    );
+    const userGroups = allGroups
+      .filter((g) => g.members && g.members.some((m) => (m.userId || m.userId?.toString()) === userId.toString()))
+      .map((g) => {
+        const freshMembers = (g.members || []).map((m) => {
+          const u = allUsers.find(
+            (user) => (user.id || user._id)?.toString() === (m.userId || m.userId?.toString())
+          );
+          return {
+            ...m,
+            name: u?.name || m.name,
+            username: u?.username || m.username,
+            avatar: u?.avatar || m.avatar
+          };
+        });
+        return { ...g, members: freshMembers };
+      });
 
     res.status(200).json({
       success: true,
@@ -93,22 +107,65 @@ export const getGroupDetails = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Group not found' });
     }
 
+    // Always fetch latest member avatars and names from users collection
+    const allUsers = await collections.users.find();
+    const freshMembers = (group.members || []).map((m) => {
+      const u = allUsers.find(
+        (user) => (user.id || user._id)?.toString() === (m.userId || m.userId?.toString())
+      );
+      return {
+        ...m,
+        name: u?.name || m.name,
+        username: u?.username || m.username,
+        avatar: u?.avatar || m.avatar
+      };
+    });
+    const freshGroup = { ...group, members: freshMembers };
+
     // Fetch habits belonging to this group
     const allHabits = await collections.habits.find({ groupId: group.id || group._id, isArchived: false });
 
-    // Fetch logs for all members in this group's habits for targetDate
+    // Fetch logs for all members in this group's habits for targetDate from dailyLogs
     const targetDate = req.query.date || new Date().toISOString().split('T')[0];
     const groupHabitIds = allHabits.map((h) => (h.id || h._id).toString());
-    const allLogs = await collections.habitLogs.find({ date: targetDate });
+    
+    // 1. Fetch from dailyLogs collection
+    const dailyRecords = await collections.dailyLogs.find({ date: targetDate });
+    const logsForGroupHabits = [];
 
-    const logsForGroupHabits = allLogs.filter((l) =>
-      groupHabitIds.includes(l.habitId ? l.habitId.toString() : '')
-    );
+    if (dailyRecords && dailyRecords.length > 0) {
+      dailyRecords.forEach((rec) => {
+        if (rec.items && Array.isArray(rec.items)) {
+          rec.items.forEach((item) => {
+            const itemHabitId = (item.habitId || item.habitId?.toString() || '');
+            if (groupHabitIds.includes(itemHabitId)) {
+              logsForGroupHabits.push(item);
+            }
+          });
+        }
+      });
+    }
+
+    // 2. Also check legacy habitLogs for any records not yet migrated
+    const legacyLogs = await collections.habitLogs.find({ date: targetDate });
+    if (legacyLogs && legacyLogs.length > 0) {
+      legacyLogs.forEach((l) => {
+        const itemHabitId = (l.habitId ? l.habitId.toString() : '');
+        const alreadyIncluded = logsForGroupHabits.some(
+          (existing) =>
+            (existing.habitId?.toString() === itemHabitId) &&
+            (existing.userId?.toString() === (l.userId?.toString()))
+        );
+        if (groupHabitIds.includes(itemHabitId) && !alreadyIncluded) {
+          logsForGroupHabits.push(l);
+        }
+      });
+    }
 
     res.status(200).json({
       success: true,
       data: {
-        group,
+        group: freshGroup,
         habits: allHabits,
         todayLogs: logsForGroupHabits,
         date: targetDate

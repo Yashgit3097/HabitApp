@@ -23,7 +23,16 @@ export const Avatar = ({
 
   const fallbackInitial = name ? name.charAt(0).toUpperCase() : 'U';
   const defaultDicebear = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name || 'user')}`;
-  const imageSrc = src || defaultDicebear;
+
+  let cleanSrc = src;
+  if (cleanSrc && typeof cleanSrc === 'string') {
+    cleanSrc = cleanSrc.trim();
+    if (cleanSrc.startsWith('http://res.cloudinary.com')) {
+      cleanSrc = cleanSrc.replace('http://', 'https://');
+    }
+  }
+
+  const imageSrc = cleanSrc || defaultDicebear;
 
   return (
     <div className={`relative inline-flex items-center justify-center select-none ${className}`}>

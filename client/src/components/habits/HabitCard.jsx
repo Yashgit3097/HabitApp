@@ -232,8 +232,7 @@ export const HabitCard = ({ habit, selectedDate }) => {
     if (e) e.preventDefault();
     const val = parseInt(countInput || '0', 10);
     if (isNaN(val) || val < 0) return;
-    const target = habit.targetValue || 1;
-    const completed = val >= target;
+    const completed = val > 0;
     logMutation.mutate({
       isCompleted: completed,
       value: val
@@ -245,9 +244,8 @@ export const HabitCard = ({ habit, selectedDate }) => {
     const current = typeof currentValue === 'number' ? currentValue : 0;
     const nextVal = Math.max(0, current + delta);
     setCountInput(nextVal.toString());
-    const target = habit.targetValue || 1;
     logMutation.mutate({
-      isCompleted: nextVal >= target,
+      isCompleted: nextVal > 0,
       value: nextVal
     });
   };
@@ -257,9 +255,9 @@ export const HabitCard = ({ habit, selectedDate }) => {
     if (e) e.preventDefault();
     const mins = parseInt(timeInputMins || '0', 10);
     if (isNaN(mins) || mins < 0) return;
-    const target = habit.targetValue || 1;
+    const completed = mins > 0;
     logMutation.mutate({
-      isCompleted: mins >= target,
+      isCompleted: completed,
       value: mins
     });
   };
@@ -269,9 +267,8 @@ export const HabitCard = ({ habit, selectedDate }) => {
     const current = typeof currentValue === 'number' ? currentValue : 0;
     const nextVal = Math.max(0, current + added);
     setTimeInputMins(nextVal.toString());
-    const target = habit.targetValue || 1;
     logMutation.mutate({
-      isCompleted: nextVal >= target,
+      isCompleted: nextVal > 0,
       value: nextVal
     });
   };
@@ -289,10 +286,8 @@ export const HabitCard = ({ habit, selectedDate }) => {
   // Stopwatch handlers
   const saveTimerStopwatch = () => {
     setIsTimerRunning(false);
-    const mins = Math.floor(timerSeconds / 60);
-    const target = habit.targetValue || 1;
     logMutation.mutate({
-      isCompleted: mins >= target,
+      isCompleted: timerSeconds > 0,
       value: timerSeconds
     });
   };
