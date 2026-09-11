@@ -38,25 +38,25 @@ export const SocialView = () => {
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       {/* Header Bar */}
-      <div className="flex items-center justify-between gap-3">
-        <div>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="min-w-0">
           <h2 className="text-xl font-black text-[#022c22] tracking-tight flex items-center gap-2">
-            <Users className="w-5 h-5 text-[#047857]" />
-            Sankalp Groups
+            <Users className="w-5 h-5 text-[#047857] shrink-0" />
+            <span>Sankalp Groups</span>
           </h2>
-          <p className="text-xs text-gray-500 font-semibold">
+          <p className="text-xs text-gray-500 font-semibold mt-0.5">
             Track daily discipline and shared habits together with friends.
           </p>
         </div>
 
         {/* Top Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
           <button
             onClick={() => setIsJoinCodeModalOpen(true)}
-            className="px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer"
+            className="px-3 py-1.5 rounded-xl bg-white hover:bg-emerald-50 text-emerald-900 border border-emerald-200 text-xs font-bold transition-all flex items-center gap-1.5 shadow-2xs cursor-pointer shrink-0"
           >
             <KeyRound className="w-3.5 h-3.5 text-[#047857]" />
-            <span className="hidden sm:inline">Join Code</span>
+            <span>Join Code</span>
           </button>
 
           <button
