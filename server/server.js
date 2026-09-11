@@ -1,5 +1,6 @@
 import express from 'express';
 import http from 'http';
+import https from 'https';
 import { Server } from 'socket.io';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -19,9 +20,13 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const server = http.createServer(app);
 
+// Production server URL for keep-alive pings (prevents Render free-tier sleep)
+const PRODUCTION_SERVER_URL = process.env.RENDER_EXTERNAL_URL || 'https://habitapp-al74.onrender.com';
+
 // Allowed origins for CORS (Local + Production Netlify + Custom env URLs)
 const allowedOrigins = [
   'https://habitsankalp.netlify.app',
+  'https://habitapp-al74.onrender.com',
   'http://localhost:5173',
   'http://localhost:4173',
   'http://localhost:5000',
@@ -84,7 +89,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/habits', habitRoutes);
 app.use('/api/groups', groupRoutes);
 
-// Health check
+// Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
@@ -103,6 +108,34 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Keep-alive pinger: automatically pings production health endpoint every 5 minutes to prevent sleep
+const startKeepAlive = () => {
+  const PING_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+  const ping = () => {
+    const healthUrl = `${PRODUCTION_SERVER_URL.replace(/\/$/, '')}/api/health`;
+    const protocol = healthUrl.startsWith('https') ? https : http;
+
+    protocol
+      .get(healthUrl, (res) => {
+        if (res.statusCode === 200) {
+          console.log(`💓 [Keep-Alive] Pinged ${healthUrl} (Status: 200 OK)`);
+        } else {
+          console.warn(`⚠️ [Keep-Alive] Ping returned status ${res.statusCode}`);
+        }
+      })
+      .on('error', (err) => {
+        console.warn(`⚠️ [Keep-Alive] Ping error:`, err.message);
+      });
+  };
+
+  // Run first ping after 10s, then repeat every 5 minutes
+  setTimeout(() => {
+    ping();
+    setInterval(ping, PING_INTERVAL_MS);
+  }, 10000);
+};
+
 const PORT = process.env.PORT || 5000;
 
 // Connect DB and start server
@@ -110,5 +143,8 @@ connectDB().then(() => {
   server.listen(PORT, () => {
     console.log(`🚀 Habit Tracker Server running on http://localhost:${PORT}`);
     console.log(`🌐 Allowed Origins:`, allowedOrigins);
+    
+    // Start automated 5-minute keep-alive pings
+    startKeepAlive();
   });
 });
