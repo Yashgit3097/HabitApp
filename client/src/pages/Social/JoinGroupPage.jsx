@@ -5,6 +5,7 @@ import { Users, Sparkles, ArrowRight, ShieldCheck, CheckCircle2, AlertCircle } f
 import api from '../../api/client';
 import { useAuthStore } from '../../stores/authStore';
 import { Avatar } from '../../components/common/Avatar';
+import { JoinGroupSkeleton } from '../../components/common/SkeletonLoader';
 
 export const JoinGroupPage = () => {
   const { code } = useParams();
@@ -44,12 +45,7 @@ export const JoinGroupPage = () => {
   });
 
   if (isLoading) {
-    return (
-      <div className="min-h-[70vh] flex flex-col items-center justify-center">
-        <div className="w-8 h-8 border-3 border-[#047857] border-t-transparent rounded-full animate-spin mb-3" />
-        <p className="text-xs font-bold text-gray-500">Loading group invitation...</p>
-      </div>
-    );
+    return <JoinGroupSkeleton />;
   }
 
   if (!group) {

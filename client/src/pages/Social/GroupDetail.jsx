@@ -27,6 +27,7 @@ import { DateNavigator } from '../../components/habits/DateNavigator';
 import { MemberReportModal } from '../../components/social/MemberReportModal';
 import { ShareInviteModal } from '../../components/social/ShareInviteModal';
 import { CreateHabitModal } from '../../components/habits/CreateHabitModal';
+import { GroupMatrixSkeleton } from '../../components/common/SkeletonLoader';
 import { joinGroupRoom, leaveGroupRoom, getSocket } from '../../api/socket';
 
 export const GroupDetail = () => {
@@ -89,12 +90,7 @@ export const GroupDetail = () => {
   });
 
   if (isLoading) {
-    return (
-      <div className="py-16 text-center">
-        <div className="w-8 h-8 border-3 border-[#047857] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-        <p className="text-xs font-bold text-gray-500">Loading live group matrix...</p>
-      </div>
-    );
+    return <GroupMatrixSkeleton />;
   }
 
   const group = groupData?.group;

@@ -15,6 +15,7 @@ import api from '../../api/client';
 import { DateNavigator } from '../../components/habits/DateNavigator';
 import { HabitCard } from '../../components/habits/HabitCard';
 import { CreateHabitModal } from '../../components/habits/CreateHabitModal';
+import { HabitListSkeleton } from '../../components/common/SkeletonLoader';
 
 export const Dashboard = () => {
   const { user } = useAuthStore();
@@ -141,10 +142,7 @@ export const Dashboard = () => {
 
         {/* Habit Card List */}
         {isLoading ? (
-          <div className="py-8 text-center bg-white rounded-2xl border border-gray-100">
-            <div className="w-6 h-6 border-2 border-[#047857] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-            <p className="text-xs font-bold text-gray-500">Loading habits...</p>
-          </div>
+          <HabitListSkeleton count={3} />
         ) : filteredHabits.length > 0 ? (
           <div className="grid grid-cols-1 gap-2.5">
             {filteredHabits.map((habit) => (

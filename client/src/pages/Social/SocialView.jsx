@@ -17,6 +17,7 @@ import { useAuthStore } from '../../stores/authStore';
 import { Avatar } from '../../components/common/Avatar';
 import { CreateGroupModal } from '../../components/social/CreateGroupModal';
 import { JoinGroupModal } from '../../components/social/JoinGroupModal';
+import { GroupListSkeleton } from '../../components/common/SkeletonLoader';
 
 export const SocialView = () => {
   const navigate = useNavigate();
@@ -70,10 +71,7 @@ export const SocialView = () => {
 
       {/* Groups List */}
       {isLoading ? (
-        <div className="py-12 text-center bg-white rounded-2xl border border-gray-100">
-          <div className="w-6 h-6 border-2 border-[#047857] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-          <p className="text-xs font-bold text-gray-500">Loading your groups...</p>
-        </div>
+        <GroupListSkeleton count={3} />
       ) : groups.length > 0 ? (
         <div className="grid grid-cols-1 gap-2.5">
           {groups.map((group) => {

@@ -14,11 +14,12 @@ import {
 } from 'lucide-react';
 import api from '../../api/client';
 import { useAuthStore } from '../../stores/authStore';
+import { AnalyticsSkeleton } from '../../components/common/SkeletonLoader';
 
 export const Analytics = () => {
   const { user } = useAuthStore();
 
-  const { data: habitsResponse } = useQuery({
+  const { data: habitsResponse, isLoading: isHabitsLoading } = useQuery({
     queryKey: ['habits', 'analytics'],
     queryFn: async () => {
       const res = await api.get('/habits');
@@ -26,13 +27,17 @@ export const Analytics = () => {
     }
   });
 
-  const { data: groups = [] } = useQuery({
+  const { data: groups = [], isLoading: isGroupsLoading } = useQuery({
     queryKey: ['userGroups'],
     queryFn: async () => {
       const res = await api.get('/groups');
       return res.data?.data || [];
     }
   });
+
+  if (isHabitsLoading || isGroupsLoading) {
+    return <AnalyticsSkeleton />;
+  }
 
   const habits = habitsResponse?.data || [];
   const totalHabits = habits.length;
