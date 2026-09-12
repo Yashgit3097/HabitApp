@@ -29,6 +29,7 @@ import { ShareInviteModal } from '../../components/social/ShareInviteModal';
 import { CreateHabitModal } from '../../components/habits/CreateHabitModal';
 import { GroupMatrixSkeleton } from '../../components/common/SkeletonLoader';
 import { joinGroupRoom, leaveGroupRoom, getSocket } from '../../api/socket';
+import { getLocalDateString } from '../../utils/dateUtils';
 
 export const GroupDetail = () => {
   const { id } = useParams();
@@ -40,9 +41,7 @@ export const GroupDetail = () => {
   const [activeTab, setActiveTab] = useState('matrix'); // 'matrix' | 'analytics' | 'members'
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [selectedMemberForReport, setSelectedMemberForReport] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
+  const [selectedDate, setSelectedDate] = useState(() => getLocalDateString(new Date()));
 
   // Fetch group details
   const { data: groupData, isLoading } = useQuery({

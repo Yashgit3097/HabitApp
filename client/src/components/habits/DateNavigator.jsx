@@ -1,12 +1,13 @@
 import React, { useRef, useEffect } from 'react';
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
+import { getLocalDateString, parseLocalDate, formatDisplayDate } from '../../utils/dateUtils';
 
 export const DateNavigator = ({ selectedDate, onSelectDate }) => {
   const scrollContainerRef = useRef(null);
   const selectedButtonRef = useRef(null);
   const dateInputRef = useRef(null);
 
-  const todayIso = new Date().toISOString().split('T')[0];
+  const todayIso = getLocalDateString(new Date());
 
   // Generate scrollable date array (30 days past to 14 days future)
   const getDaysArray = () => {
@@ -16,8 +17,8 @@ export const DateNavigator = ({ selectedDate, onSelectDate }) => {
     for (let i = -30; i <= 14; i++) {
       const d = new Date();
       d.setDate(today.getDate() + i);
-      const iso = d.toISOString().split('T')[0];
-      const isToday = i === 0;
+      const iso = getLocalDateString(d);
+      const isToday = iso === todayIso;
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
       const monthName = d.toLocaleDateString('en-US', { month: 'short' });
       const dayNum = d.getDate();
@@ -50,14 +51,13 @@ export const DateNavigator = ({ selectedDate, onSelectDate }) => {
 
   // Navigate one day back/forward
   const shiftDay = (delta) => {
-    const current = new Date(selectedDate || todayIso);
+    const current = parseLocalDate(selectedDate || todayIso);
     current.setDate(current.getDate() + delta);
-    onSelectDate(current.toISOString().split('T')[0]);
+    onSelectDate(getLocalDateString(current));
   };
 
   // Format header title (e.g., September 2026)
-  const activeDateObj = new Date(selectedDate || todayIso);
-  const monthYearLabel = activeDateObj.toLocaleDateString('en-US', {
+  const monthYearLabel = formatDisplayDate(selectedDate || todayIso, {
     month: 'long',
     year: 'numeric'
   });

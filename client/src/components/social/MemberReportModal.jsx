@@ -1,5 +1,5 @@
-import React from 'react';
-import { motion } from 'framer-motion';
+import React, { useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   X,
   CheckCircle2,
@@ -12,19 +12,31 @@ import {
   Trophy,
   Flame,
   Check,
-  Sparkles
+  Sparkles,
+  Maximize2
 } from 'lucide-react';
 import { Avatar } from '../common/Avatar';
+import { formatDisplayDate, isToday, isYesterday } from '../../utils/dateUtils';
 
 export const MemberReportModal = ({ member, habits = [], todayLogs = [], selectedDate, isOpen, onClose }) => {
+  const [showProfilePhotoModal, setShowProfilePhotoModal] = useState(false);
+
   if (!isOpen || !member) return null;
 
-  const formattedDate = new Date(selectedDate).toLocaleDateString('en-US', {
+  const formattedDate = formatDisplayDate(selectedDate, {
     weekday: 'long',
     month: 'short',
     day: 'numeric',
     year: 'numeric'
   });
+  const isSelectedToday = isToday(selectedDate);
+  const isSelectedYesterday = isYesterday(selectedDate);
+
+  let cleanAvatarSrc = member.avatar;
+  if (cleanAvatarSrc && typeof cleanAvatarSrc === 'string') {
+    cleanAvatarSrc = cleanAvatarSrc.trim().replace('http://', 'https://');
+  }
+  const defaultDicebear = `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(member.name || member.username || 'user')}`;
 
   const memberLogs = habits.map((habit) => {
     const habitId = (habit.id || habit._id).toString();
@@ -75,12 +87,23 @@ export const MemberReportModal = ({ member, habits = [], todayLogs = [], selecte
         {/* Header Banner */}
         <div className="px-5 py-4 bg-gradient-to-r from-[#065f46] via-[#047857] to-[#065f46] text-white flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-3">
-            <Avatar
-              src={member.avatar}
-              name={member.name}
-              size="md"
-              status={completedCount === totalTasks && totalTasks > 0 ? 'completed' : 'pending'}
-            />
+            <button
+              type="button"
+              onClick={() => setShowProfilePhotoModal(true)}
+              className="relative group cursor-pointer rounded-full transition-transform duration-200 hover:scale-108 active:scale-95 focus:outline-hidden"
+              title={`View ${member.name}'s profile picture`}
+            >
+              <Avatar
+                src={member.avatar}
+                name={member.name}
+                size="md"
+                status={completedCount === totalTasks && totalTasks > 0 ? 'completed' : 'pending'}
+                className="group-hover:ring-2 group-hover:ring-white/90 transition-all shadow-md"
+              />
+              <span className="absolute inset-0 rounded-full bg-black/35 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity text-white">
+                <Maximize2 className="w-3.5 h-3.5 drop-shadow-md" />
+              </span>
+            </button>
             <div>
               <div className="flex items-center gap-1.5">
                 <h3 className="font-extrabold text-base text-white">{member.name}</h3>
@@ -105,9 +128,19 @@ export const MemberReportModal = ({ member, habits = [], todayLogs = [], selecte
 
         {/* Date & Overall Progress Summary */}
         <div className="p-4 bg-emerald-50/70 border-b border-emerald-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-950">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-950 flex-wrap">
             <Calendar className="w-3.5 h-3.5 text-[#047857]" />
             <span>{formattedDate}</span>
+            {isSelectedToday && (
+              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-emerald-200 text-emerald-900 border border-emerald-300">
+                Today
+              </span>
+            )}
+            {isSelectedYesterday && (
+              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                Yesterday
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -262,6 +295,56 @@ export const MemberReportModal = ({ member, habits = [], todayLogs = [], selecte
           </button>
         </div>
       </motion.div>
+
+      {/* Expanded Profile Photo Lightbox Modal */}
+      <AnimatePresence>
+        {showProfilePhotoModal && (
+          <div
+            onClick={() => setShowProfilePhotoModal(false)}
+            className="fixed inset-0 z-60 bg-emerald-950/80 backdrop-blur-md flex items-center justify-center p-4 cursor-pointer"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.85, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.85, y: 15 }}
+              transition={{ type: 'spring', stiffness: 450, damping: 28 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-3xl p-6 max-w-xs w-full shadow-2xl border border-emerald-100 flex flex-col items-center text-center relative overflow-hidden cursor-default"
+            >
+              <button
+                onClick={() => setShowProfilePhotoModal(false)}
+                className="absolute top-3.5 right-3.5 p-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors cursor-pointer"
+                title="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              {/* Glowing Large Profile Avatar */}
+              <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-full overflow-hidden p-1.5 bg-gradient-to-tr from-[#10b981] via-[#047857] to-[#022c22] shadow-xl my-2 ring-4 ring-emerald-50">
+                <img
+                  src={cleanAvatarSrc || defaultDicebear}
+                  alt={member.name}
+                  className="w-full h-full object-cover rounded-full bg-white shadow-inner"
+                  onError={(e) => {
+                    e.currentTarget.onerror = null;
+                    e.currentTarget.src = defaultDicebear;
+                  }}
+                />
+              </div>
+
+              <h3 className="text-base font-black text-[#022c22] mt-2">{member.name}</h3>
+              <p className="text-xs text-emerald-700 font-semibold">@{member.username}</p>
+
+              {member.role === 'admin' && (
+                <span className="mt-2 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300 flex items-center gap-1">
+                  <Crown className="w-3 h-3 fill-current" />
+                  Group Admin
+                </span>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

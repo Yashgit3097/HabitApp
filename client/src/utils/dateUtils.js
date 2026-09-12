@@ -1,0 +1,81 @@
+/**
+ * Local Date Utilities for accurate timezone-safe date operations.
+ * Prevents UTC shifting issues where past-midnight local times roll back a day.
+ */
+
+/**
+ * Returns YYYY-MM-DD for a given Date or current local date in the user's local timezone.
+ */
+export const getLocalDateString = (date = new Date()) => {
+  if (!date) return getLocalDateString(new Date());
+  const d = typeof date === 'string' ? parseLocalDate(date) : date;
+  if (isNaN(d.getTime())) return getLocalDateString(new Date());
+  
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+/**
+ * Parses YYYY-MM-DD into a local Date instance at local midnight.
+ * Avoids UTC parsing bugs with `new Date("YYYY-MM-DD")`.
+ */
+export const parseLocalDate = (dateStr) => {
+  if (!dateStr) return new Date();
+  if (dateStr instanceof Date) return dateStr;
+  if (typeof dateStr !== 'string') return new Date(dateStr);
+  
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const year = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    const day = parseInt(parts[2], 10);
+    if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+      return new Date(year, month, day, 0, 0, 0, 0);
+    }
+  }
+  return new Date(dateStr);
+};
+
+/**
+ * Formats a YYYY-MM-DD string into a localized human-readable date.
+ */
+export const formatDisplayDate = (dateStr, options = {}) => {
+  if (!dateStr) return '';
+  const d = parseLocalDate(dateStr);
+  const defaultOptions = {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric'
+  };
+  return d.toLocaleDateString('en-US', { ...defaultOptions, ...options });
+};
+
+/**
+ * Checks if a YYYY-MM-DD date is today in the user's local timezone.
+ */
+export const isToday = (dateStr) => {
+  if (!dateStr) return false;
+  return dateStr === getLocalDateString(new Date());
+};
+
+/**
+ * Checks if a YYYY-MM-DD date is yesterday in the user's local timezone.
+ */
+export const isYesterday = (dateStr) => {
+  if (!dateStr) return false;
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  return dateStr === getLocalDateString(yesterday);
+};
+
+/**
+ * Get relative date label (e.g. "Today", "Yesterday", or "Sun, Sep 13")
+ */
+export const getRelativeDateLabel = (dateStr) => {
+  if (!dateStr) return '';
+  if (isToday(dateStr)) return 'Today';
+  if (isYesterday(dateStr)) return 'Yesterday';
+  return formatDisplayDate(dateStr, { weekday: 'short', month: 'short', day: 'numeric' });
+};

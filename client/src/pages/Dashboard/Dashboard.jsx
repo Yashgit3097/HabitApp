@@ -16,14 +16,13 @@ import { DateNavigator } from '../../components/habits/DateNavigator';
 import { HabitCard } from '../../components/habits/HabitCard';
 import { CreateHabitModal } from '../../components/habits/CreateHabitModal';
 import { HabitListSkeleton } from '../../components/common/SkeletonLoader';
+import { getLocalDateString, formatDisplayDate } from '../../utils/dateUtils';
 
 export const Dashboard = () => {
   const { user } = useAuthStore();
   const { openCreateHabit, openCreateGroup } = useUIStore();
 
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
+  const [selectedDate, setSelectedDate] = useState(() => getLocalDateString(new Date()));
   const [filter, setFilter] = useState('all'); // 'all' | 'pending' | 'completed'
 
   const { data: habitsResponse, isLoading } = useQuery({
@@ -47,7 +46,7 @@ export const Dashboard = () => {
     return true;
   });
 
-  const formattedDateTitle = new Date(selectedDate).toLocaleDateString('en-US', {
+  const formattedDateTitle = formatDisplayDate(selectedDate, {
     weekday: 'short',
     month: 'short',
     day: 'numeric'
