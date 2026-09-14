@@ -10,7 +10,9 @@ import { connectDB } from './config/db.js';
 import authRoutes from './modules/auth/auth.routes.js';
 import habitRoutes from './modules/habits/habit.routes.js';
 import groupRoutes from './modules/groups/group.routes.js';
+import reportRoutes from './modules/reports/report.routes.js';
 import { initSocketHandlers } from './sockets/socketHandler.js';
+import { initArchiveScheduler } from './services/archiveService.js';
 
 dotenv.config();
 
@@ -88,6 +90,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/auth', authRoutes);
 app.use('/api/habits', habitRoutes);
 app.use('/api/groups', groupRoutes);
+app.use('/api/reports', reportRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -146,5 +149,8 @@ connectDB().then(() => {
     
     // Start automated 5-minute keep-alive pings
     startKeepAlive();
+
+    // Start background monthly report archiver & cleanup
+    initArchiveScheduler();
   });
 });

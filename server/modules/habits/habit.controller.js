@@ -1,4 +1,5 @@
 import { collections } from '../../config/db.js';
+import { computeAndSaveUserDisciplineScore } from '../reports/report.controller.js';
 
 // @desc    Create a new habit (Group tasks only creatable by group admin)
 // @route   POST /api/habits
@@ -98,55 +99,57 @@ export const createHabit = async (req, res) => {
 // @access  Private
 export const getHabits = async (req, res) => {
   try {
-    const userId = req.user.id || req.user._id;
+    const currentUserIdStr = (req.user.id || req.user._id).toString();
     const targetDate = req.query.date || new Date().toISOString().split('T')[0];
 
     // 1. Get all personal habits created by the user
-    const personalHabits = await collections.habits.find({ userId, isArchived: false });
+    const allHabits = await collections.habits.find({ isArchived: false });
+    const personalHabits = allHabits.filter(
+      (h) => (h.userId || '').toString() === currentUserIdStr && !h.groupId
+    );
 
     // 2. Get user's groups to include group habits
     const allGroups = await collections.groups.find();
     const userGroups = allGroups.filter((g) =>
-      g.members && g.members.some((m) => m.userId === userId)
+      g.members && g.members.some((m) => (m.userId || '').toString() === currentUserIdStr)
     );
-    const userGroupIds = userGroups.map((g) => g.id || g._id);
+    const userGroupIds = userGroups.map((g) => (g.id || g._id).toString());
 
-    // 3. Get group habits for those groups
+    // 3. Get group habits for those groups (including those created by current user for the group)
     let groupHabits = [];
     if (userGroupIds.length > 0) {
-      const allHabits = await collections.habits.find({ isArchived: false });
       groupHabits = allHabits.filter(
-        (h) => h.groupId && userGroupIds.includes(h.groupId) && h.userId !== userId
+        (h) => h.groupId && userGroupIds.includes((h.groupId || '').toString())
       );
     }
 
     const combinedHabits = [...personalHabits, ...groupHabits];
 
     // 4. Fetch logs for the target date for this user
-    const allLogs = await collections.habitLogs.find({
-      userId,
-      date: targetDate
-    });
+    const allLogs = await collections.habitLogs.find();
+    const allLogsForUser = allLogs.filter(
+      (l) => (l.userId || '').toString() === currentUserIdStr && l.date === targetDate
+    );
 
     // Map logs to habits and attach isAdmin flag for group habits
     const habitsWithLogs = combinedHabits.map((habit) => {
-      const habitId = habit.id || habit._id;
-      const log = allLogs.find((l) => l.habitId === habitId);
+      const habitId = (habit.id || habit._id).toString();
+      const log = allLogsForUser.find((l) => (l.habitId || '').toString() === habitId);
       
       let isGroupAdmin = false;
       if (habit.groupId) {
-        const parentGroup = userGroups.find((g) => (g.id || g._id) === habit.groupId);
-        isGroupAdmin = parentGroup?.adminId === userId;
+        const parentGroup = userGroups.find((g) => (g.id || g._id).toString() === (habit.groupId || '').toString());
+        isGroupAdmin = (parentGroup?.adminId || '').toString() === currentUserIdStr;
       }
 
       return {
         ...habit,
-        isOwner: habit.userId === userId,
+        isOwner: (habit.userId || '').toString() === currentUserIdStr,
         isGroupAdmin,
-        canManage: habit.userId === userId || isGroupAdmin,
+        canManage: (habit.userId || '').toString() === currentUserIdStr || isGroupAdmin,
         todayLog: log || {
           habitId,
-          userId,
+          userId: currentUserIdStr,
           date: targetDate,
           isCompleted: false,
           value: 0,
@@ -182,13 +185,13 @@ export const updateHabit = async (req, res) => {
     // Permission check
     if (habit.groupId) {
       const group = await collections.groups.findById(habit.groupId);
-      if (!group || group.adminId !== userId) {
+      if (!group || (group.adminId || '').toString() !== userId.toString()) {
         return res.status(403).json({
           success: false,
           message: 'Only the Group Admin can edit this group habit'
         });
       }
-    } else if (habit.userId !== userId) {
+    } else if ((habit.userId || '').toString() !== userId.toString()) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to edit this habit'
@@ -201,7 +204,12 @@ export const updateHabit = async (req, res) => {
     if (req.body.icon) updates.icon = req.body.icon;
     if (req.body.color) updates.color = req.body.color;
     if (req.body.frequency) updates.frequency = req.body.frequency;
-    if (req.body.targetValue !== undefined) updates.targetValue = Number(req.body.targetValue);
+    if (req.body.targetValue !== undefined) {
+      updates.targetValue =
+        typeof req.body.targetValue === 'string' && isNaN(Number(req.body.targetValue))
+          ? req.body.targetValue
+          : (Number(req.body.targetValue) || req.body.targetValue || 1);
+    }
     if (req.body.targetUnit !== undefined) updates.targetUnit = req.body.targetUnit;
     if (req.body.question !== undefined) updates.question = req.body.question;
 
@@ -240,10 +248,29 @@ export const logHabit = async (req, res) => {
       notes = ''
     } = req.body;
 
+    // Enforce ±3-day locking rule
+    const targetDateObj = new Date(date + 'T00:00:00');
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayObj = new Date(todayStr + 'T00:00:00');
+    const diffTime = targetDateObj.getTime() - todayObj.getTime();
+    const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+    if (Math.abs(diffDays) > 3) {
+      return res.status(403).json({
+        success: false,
+        message: 'This date is locked! You can only log habits within 3 days before and 3 days after today.'
+      });
+    }
+
     const habit = await collections.habits.findById(habitId);
     if (!habit) {
       return res.status(404).json({ success: false, message: 'Habit not found' });
     }
+
+    const formattedValue =
+      typeof value === 'string' && isNaN(Number(value))
+        ? value
+        : (typeof value === 'number' ? value : Number(value) || 0);
 
     const existingLog = await collections.habitLogs.findOne({
       habitId,
@@ -257,7 +284,7 @@ export const logHabit = async (req, res) => {
         { id: existingLog.id || existingLog._id },
         {
           isCompleted: isCompleted !== undefined ? Boolean(isCompleted) : existingLog.isCompleted,
-          value: value !== undefined ? Number(value) : existingLog.value,
+          value: value !== undefined ? formattedValue : existingLog.value,
           notes: notes !== undefined ? notes : existingLog.notes,
           loggedAt: new Date().toISOString()
         }
@@ -270,7 +297,7 @@ export const logHabit = async (req, res) => {
         userAvatar: req.user.avatar,
         date,
         isCompleted: Boolean(isCompleted),
-        value: Number(value) || 0,
+        value: formattedValue,
         notes: notes || '',
         loggedAt: new Date().toISOString()
       });
@@ -302,10 +329,14 @@ export const logHabit = async (req, res) => {
       }
     }
 
+    // Recompute and persist updated all-time discipline score directly in database
+    const updatedScore = await computeAndSaveUserDisciplineScore(userId);
+
     res.status(200).json({
       success: true,
       message: 'Habit progress logged',
-      data: updatedLog
+      data: updatedLog,
+      disciplineScore: updatedScore
     });
   } catch (error) {
     console.error('Log Habit Error:', error);

@@ -285,3 +285,182 @@ export const getGroupByCode = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to fetch group code info' });
   }
 };
+
+// @desc    Update a group member's profile avatar (Admin only or self)
+// @route   PUT /api/groups/:id/members/:memberId/avatar
+// @access  Private
+export const updateMemberAvatar = async (req, res) => {
+  try {
+    const currentUserId = (req.user.id || req.user._id).toString();
+    const { id: groupId, memberId } = req.params;
+
+    const group = await collections.groups.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const isAdmin = (group.adminId || '').toString() === currentUserId;
+    const isSelf = memberId.toString() === currentUserId;
+
+    if (!isAdmin && !isSelf) {
+      return res.status(403).json({ success: false, message: 'Only group admin can update member profile picture' });
+    }
+
+    let avatarUrl = '';
+    if (req.file) {
+      avatarUrl = await processUploadedFile(req.file, req);
+    } else if (req.body.avatarUrl) {
+      avatarUrl = req.body.avatarUrl.trim();
+    } else {
+      return res.status(400).json({ success: false, message: 'Please provide an image file or avatarUrl' });
+    }
+
+    // 1. Update user record
+    const targetUser = await collections.users.findById(memberId);
+    if (targetUser) {
+      await collections.users.updateOne({ id: memberId }, { avatar: avatarUrl });
+    }
+
+    // 2. Update member avatar across all groups
+    const allGroups = await collections.groups.find();
+    for (const g of allGroups) {
+      if (g.members && g.members.some((m) => (m.userId || '').toString() === memberId.toString())) {
+        const updatedMembers = g.members.map((m) => {
+          if ((m.userId || '').toString() === memberId.toString()) {
+            return { ...m, avatar: avatarUrl };
+          }
+          return m;
+        });
+        await collections.groups.updateOne({ id: g.id || g._id }, { members: updatedMembers });
+      }
+    }
+
+    // 3. Update in monthlyReports
+    const allReports = await collections.monthlyReports.find();
+    for (const r of allReports) {
+      if ((r.userId || '').toString() === memberId.toString()) {
+        const updatedProfile = { ...(r.userProfile || {}), avatar: avatarUrl };
+        await collections.monthlyReports.updateOne({ id: r.id || r._id }, { userProfile: updatedProfile });
+      }
+    }
+
+    // 4. Update in habits creatorAvatar
+    const allHabits = await collections.habits.find();
+    for (const h of allHabits) {
+      if ((h.userId || '').toString() === memberId.toString()) {
+        await collections.habits.updateOne({ id: h.id || h._id }, { creatorAvatar: avatarUrl });
+      }
+    }
+
+    // 5. Emit socket event
+    if (req.io) {
+      req.io.to(`group:${groupId}`).emit('member_avatar_updated', {
+        groupId,
+        userId: memberId,
+        avatar: avatarUrl
+      });
+      req.io.to(`group:${groupId}`).emit('group_habit_updated', {
+        groupId
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile picture updated successfully',
+      data: {
+        userId: memberId,
+        avatar: avatarUrl
+      }
+    });
+  } catch (error) {
+    console.error('Update Member Avatar Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update profile picture', error: error.message });
+  }
+};
+
+// @desc    Update group details (Name, Description, Avatar) - Admin only
+// @route   PUT /api/groups/:id
+// @access  Private
+export const updateGroup = async (req, res) => {
+  try {
+    const currentUserId = (req.user.id || req.user._id).toString();
+    const groupId = req.params.id;
+
+    const group = await collections.groups.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    if ((group.adminId || '').toString() !== currentUserId) {
+      return res.status(403).json({ success: false, message: 'Only group admin can update group settings' });
+    }
+
+    const { name, description, avatarUrl } = req.body;
+    const updates = {};
+
+    if (name && name.trim()) updates.name = name.trim();
+    if (description !== undefined) updates.description = description.trim();
+
+    if (req.file) {
+      updates.avatar = await processUploadedFile(req.file, req);
+    } else if (avatarUrl && avatarUrl.trim()) {
+      updates.avatar = avatarUrl.trim();
+    }
+
+    const updatedGroup = await collections.groups.updateOne({ id: groupId }, updates);
+
+    // Notify group room via socket
+    if (req.io) {
+      req.io.to(`group:${groupId}`).emit('group_habit_updated', {
+        groupId,
+        group: updatedGroup
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Group updated successfully',
+      data: updatedGroup
+    });
+  } catch (error) {
+    console.error('Update Group Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update group', error: error.message });
+  }
+};
+
+// @desc    Delete group - Admin only
+// @route   DELETE /api/groups/:id
+// @access  Private
+export const deleteGroup = async (req, res) => {
+  try {
+    const currentUserId = (req.user.id || req.user._id).toString();
+    const groupId = req.params.id;
+
+    const group = await collections.groups.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    if ((group.adminId || '').toString() !== currentUserId) {
+      return res.status(403).json({ success: false, message: 'Only group admin can delete the group' });
+    }
+
+    await collections.groups.deleteOne({ id: groupId });
+
+    // Also delete group habits
+    const groupHabits = await collections.habits.find({ groupId: groupId.toString() });
+    for (const h of groupHabits) {
+      await collections.habits.deleteOne({ id: h.id || h._id });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Group deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete Group Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete group', error: error.message });
+  }
+};
+
+

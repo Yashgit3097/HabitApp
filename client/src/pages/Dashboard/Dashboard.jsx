@@ -4,9 +4,9 @@ import {
   Sparkles,
   Plus,
   CheckCircle2,
-  Flame,
   Calendar,
   Trophy,
+  Shield,
   ArrowUpRight
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
@@ -20,7 +20,7 @@ import { getLocalDateString, formatDisplayDate } from '../../utils/dateUtils';
 
 export const Dashboard = () => {
   const { user } = useAuthStore();
-  const { openCreateHabit, openCreateGroup } = useUIStore();
+  const { openCreateHabit } = useUIStore();
 
   const [selectedDate, setSelectedDate] = useState(() => getLocalDateString(new Date()));
   const [filter, setFilter] = useState('all'); // 'all' | 'pending' | 'completed'
@@ -33,11 +33,19 @@ export const Dashboard = () => {
     }
   });
 
-  const habits = habitsResponse?.data || [];
+  const { data: scoreData } = useQuery({
+    queryKey: ['disciplineScore'],
+    queryFn: async () => {
+      const res = await api.get('/reports/score');
+      return res.data?.data;
+    }
+  });
 
+  const habits = habitsResponse?.data || [];
   const totalHabits = habits.length;
   const completedHabits = habits.filter((h) => h.todayLog?.isCompleted).length;
   const completionPercentage = totalHabits > 0 ? Math.round((completedHabits / totalHabits) * 100) : 0;
+  const disciplineScore = typeof scoreData?.score === 'number' ? scoreData.score : (user?.disciplineScore || 0);
 
   // Filter habits
   const filteredHabits = habits.filter((h) => {
@@ -71,14 +79,17 @@ export const Dashboard = () => {
 
         {/* Right: Clean, Compact Stats Badges */}
         <div className="flex items-center gap-2 shrink-0">
-          {/* Day Streak */}
-          <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-400/20 text-xs font-black">
-            <Flame className="w-3.5 h-3.5 text-amber-400 fill-current" />
-            <span className="text-white">{completedHabits > 0 ? '1' : '0'}</span>
-            <span className="text-[10px] text-emerald-300 font-semibold hidden sm:inline">Streak</span>
+          {/* Discipline Score Badge (Score increases by +1 when 100% completed in a day) */}
+          <div
+            className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-950/50 border border-amber-400/30 text-xs font-black text-amber-300 shadow-inner"
+            title="Discipline Score: Increases by +1 on each day you complete 100% of all assigned habits!"
+          >
+            <Shield className="w-3.5 h-3.5 text-amber-400 fill-amber-400/20" />
+            <span className="text-white font-black">{disciplineScore}</span>
+            <span className="text-[10px] text-amber-200/80 font-bold hidden sm:inline">Score</span>
           </div>
 
-          {/* Completion Goal */}
+          {/* Today Completion Goal */}
           <div className="flex items-center gap-1 px-2.5 py-1 rounded-xl bg-emerald-950/40 border border-emerald-400/20 text-xs font-black">
             <Trophy className="w-3.5 h-3.5 text-[#34d399]" />
             <span className="text-white">{completionPercentage}%</span>

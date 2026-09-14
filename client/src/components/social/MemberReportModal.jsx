@@ -13,13 +13,31 @@ import {
   Flame,
   Check,
   Sparkles,
-  Maximize2
+  Maximize2,
+  Camera,
+  Edit
 } from 'lucide-react';
 import { Avatar } from '../common/Avatar';
+import { UpdateAvatarModal } from '../common/UpdateAvatarModal';
+import { useAuthStore } from '../../stores/authStore';
 import { formatDisplayDate, isToday, isYesterday } from '../../utils/dateUtils';
 
-export const MemberReportModal = ({ member, habits = [], todayLogs = [], selectedDate, isOpen, onClose }) => {
+export const MemberReportModal = ({
+  member,
+  habits = [],
+  todayLogs = [],
+  selectedDate,
+  isOpen,
+  onClose,
+  groupId = null,
+  isAdmin = false
+}) => {
+  const { user } = useAuthStore();
   const [showProfilePhotoModal, setShowProfilePhotoModal] = useState(false);
+  const [showUpdateAvatarModal, setShowUpdateAvatarModal] = useState(false);
+
+  const currentUserId = (user?.id || user?._id)?.toString();
+  const isMemberAdmin = isAdmin || member?.role === 'admin' || member?.userId?.toString() === currentUserId;
 
   if (!isOpen || !member) return null;
 
@@ -341,10 +359,33 @@ export const MemberReportModal = ({ member, habits = [], todayLogs = [], selecte
                   Group Admin
                 </span>
               )}
+
+              {/* Admin Change Photo Button */}
+              {isMemberAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowProfilePhotoModal(false);
+                    setShowUpdateAvatarModal(true);
+                  }}
+                  className="mt-4 w-full py-2 px-3 rounded-xl bg-gradient-to-r from-[#047857] to-[#10b981] hover:from-[#065f46] hover:to-[#059669] text-white text-xs font-black shadow-sm flex items-center justify-center gap-2 cursor-pointer transition-transform hover:scale-102"
+                >
+                  <Camera className="w-3.5 h-3.5" />
+                  <span>Update Profile Photo</span>
+                </button>
+              )}
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      {/* Update Avatar Modal for Admin / Self */}
+      <UpdateAvatarModal
+        targetUser={member}
+        groupId={groupId}
+        isOpen={showUpdateAvatarModal}
+        onClose={() => setShowUpdateAvatarModal(false)}
+      />
     </div>
   );
 };

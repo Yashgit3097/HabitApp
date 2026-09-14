@@ -79,3 +79,41 @@ export const getRelativeDateLabel = (dateStr) => {
   if (isYesterday(dateStr)) return 'Yesterday';
   return formatDisplayDate(dateStr, { weekday: 'short', month: 'short', day: 'numeric' });
 };
+
+/**
+ * Checks if a YYYY-MM-DD date is within the allowed [-3, +3] days editing window relative to today.
+ */
+export const isDateWithinEditableWindow = (dateStr) => {
+  if (!dateStr) return false;
+  const targetDate = parseLocalDate(dateStr);
+  const today = parseLocalDate(getLocalDateString(new Date()));
+  const diffTime = targetDate.getTime() - today.getTime();
+  const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+  return Math.abs(diffDays) <= 3;
+};
+
+/**
+ * Returns difference in days between target date and today (negative = past, positive = future).
+ */
+export const getDayDifferenceFromToday = (dateStr) => {
+  if (!dateStr) return 0;
+  const targetDate = parseLocalDate(dateStr);
+  const today = parseLocalDate(getLocalDateString(new Date()));
+  const diffTime = targetDate.getTime() - today.getTime();
+  return Math.round(diffTime / (1000 * 60 * 60 * 24));
+};
+
+/**
+ * Generate a list of recent months formatted as YYYY-MM and human labels (e.g. "September 2026").
+ */
+export const getRecentMonthsList = (count = 12) => {
+  const months = [];
+  const now = new Date();
+  for (let i = 0; i < count; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    months.push({ value, label, isCurrentMonth: i === 0 });
+  }
+  return months;
+};

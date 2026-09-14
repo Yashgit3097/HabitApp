@@ -5,7 +5,10 @@ import {
   getGroupDetails,
   joinGroupByCode,
   removeMember,
-  getGroupByCode
+  getGroupByCode,
+  updateMemberAvatar,
+  updateGroup,
+  deleteGroup
 } from './group.controller.js';
 import { protect } from '../../middleware/authMiddleware.js';
 import { upload } from '../../middleware/uploadMiddleware.js';
@@ -22,8 +25,11 @@ router.post('/join', joinGroupByCode);
 router.get('/code/:code', getGroupByCode);
 
 router.route('/:id')
-  .get(getGroupDetails);
+  .get(getGroupDetails)
+  .put(upload.single('avatar'), updateGroup)
+  .delete(deleteGroup);
 
 router.delete('/:id/members/:memberId', removeMember);
+router.put('/:id/members/:memberId/avatar', upload.single('avatar'), updateMemberAvatar);
 
 export default router;

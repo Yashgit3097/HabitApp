@@ -1,6 +1,11 @@
 import React, { useRef, useEffect } from 'react';
-import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react';
-import { getLocalDateString, parseLocalDate, formatDisplayDate } from '../../utils/dateUtils';
+import { Calendar as CalendarIcon, ChevronLeft, ChevronRight, RotateCcw, Lock } from 'lucide-react';
+import {
+  getLocalDateString,
+  parseLocalDate,
+  formatDisplayDate,
+  isDateWithinEditableWindow
+} from '../../utils/dateUtils';
 
 export const DateNavigator = ({ selectedDate, onSelectDate }) => {
   const scrollContainerRef = useRef(null);
@@ -8,6 +13,7 @@ export const DateNavigator = ({ selectedDate, onSelectDate }) => {
   const dateInputRef = useRef(null);
 
   const todayIso = getLocalDateString(new Date());
+  const isSelectedDateEditable = isDateWithinEditableWindow(selectedDate);
 
   // Generate scrollable date array (30 days past to 14 days future)
   const getDaysArray = () => {
@@ -22,6 +28,7 @@ export const DateNavigator = ({ selectedDate, onSelectDate }) => {
       const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
       const monthName = d.toLocaleDateString('en-US', { month: 'short' });
       const dayNum = d.getDate();
+      const isEditable = isDateWithinEditableWindow(iso);
 
       days.push({
         iso,
@@ -30,6 +37,7 @@ export const DateNavigator = ({ selectedDate, onSelectDate }) => {
         dayNum,
         isToday,
         isFuture: i > 0,
+        isEditable,
         rawDate: d
       });
     }
@@ -64,9 +72,9 @@ export const DateNavigator = ({ selectedDate, onSelectDate }) => {
 
   return (
     <div className="bg-white rounded-2xl p-2.5 sm:p-3 shadow-xs border border-emerald-100/90 space-y-2">
-      {/* Top Header Bar with Month/Year, Jump to Today, Direct Calendar Picker, and Step Arrows */}
+      {/* Top Header Bar with Month/Year, Jump to Today, Lock Notice, Direct Calendar Picker, and Step Arrows */}
       <div className="flex items-center justify-between gap-2 px-1">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => dateInputRef.current?.showPicker?.() || dateInputRef.current?.click()}
@@ -85,6 +93,16 @@ export const DateNavigator = ({ selectedDate, onSelectDate }) => {
             onChange={(e) => e.target.value && onSelectDate(e.target.value)}
             className="sr-only"
           />
+
+          {!isSelectedDateEditable && (
+            <span
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-extrabold"
+              title="Only dates within ±3 days of today can be logged or updated"
+            >
+              <Lock className="w-2.5 h-2.5 text-amber-600" />
+              <span>Locked (±3d window)</span>
+            </span>
+          )}
 
           {selectedDate !== todayIso && (
             <button
@@ -135,21 +153,29 @@ export const DateNavigator = ({ selectedDate, onSelectDate }) => {
               ref={isSelected ? selectedButtonRef : null}
               type="button"
               onClick={() => onSelectDate(d.iso)}
-              className={`shrink-0 min-w-[50px] sm:min-w-[54px] py-1.5 px-1.5 rounded-xl flex flex-col items-center justify-center transition-all duration-150 cursor-pointer select-none snap-center ${
+              className={`shrink-0 min-w-[50px] sm:min-w-[54px] py-1.5 px-1.5 rounded-xl flex flex-col items-center justify-center transition-all duration-150 cursor-pointer select-none snap-center relative ${
                 isSelected
                   ? 'bg-[#047857] text-white shadow-sm scale-102 font-bold ring-2 ring-emerald-300'
                   : d.isToday
                   ? 'bg-emerald-50 text-[#047857] border border-emerald-200 font-bold hover:bg-emerald-100'
+                  : !d.isEditable
+                  ? 'bg-gray-100/70 text-gray-400 border border-gray-100/80 opacity-70 hover:opacity-100'
                   : 'bg-gray-50/70 text-gray-600 border border-gray-100 hover:bg-emerald-50/60 hover:text-[#047857]'
               }`}
             >
-              <span
-                className={`text-[9px] uppercase font-bold tracking-tight ${
-                  isSelected ? 'text-emerald-200' : 'text-gray-400'
-                }`}
-              >
-                {d.dayName}
-              </span>
+              <div className="flex items-center gap-0.5">
+                <span
+                  className={`text-[9px] uppercase font-bold tracking-tight ${
+                    isSelected ? 'text-emerald-200' : 'text-gray-400'
+                  }`}
+                >
+                  {d.dayName}
+                </span>
+                {!d.isEditable && (
+                  <Lock className={`w-2 h-2 ${isSelected ? 'text-emerald-200' : 'text-gray-400'}`} />
+                )}
+              </div>
+
               <span className="text-xs sm:text-sm font-black mt-0.5 leading-none">
                 {d.dayNum}
               </span>

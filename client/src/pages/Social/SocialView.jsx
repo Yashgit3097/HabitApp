@@ -9,13 +9,15 @@ import {
   ArrowRight,
   Sparkles,
   Share2,
-  Crown
+  Crown,
+  Edit3
 } from 'lucide-react';
 import api from '../../api/client';
 import { useUIStore } from '../../stores/uiStore';
 import { useAuthStore } from '../../stores/authStore';
 import { Avatar } from '../../components/common/Avatar';
 import { CreateGroupModal } from '../../components/social/CreateGroupModal';
+import { EditGroupModal } from '../../components/social/EditGroupModal';
 import { JoinGroupModal } from '../../components/social/JoinGroupModal';
 import { GroupListSkeleton } from '../../components/common/SkeletonLoader';
 
@@ -24,6 +26,7 @@ export const SocialView = () => {
   const { user } = useAuthStore();
   const { openCreateGroup } = useUIStore();
   const [isJoinCodeModalOpen, setIsJoinCodeModalOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState(null);
 
   const { data: groups = [], isLoading } = useQuery({
     queryKey: ['userGroups'],
@@ -113,7 +116,21 @@ export const SocialView = () => {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingGroup(group);
+                      }}
+                      className="p-2 rounded-xl bg-gray-50 hover:bg-emerald-100 text-gray-500 hover:text-[#047857] transition-all cursor-pointer"
+                      title="Edit Group Settings"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
                   <div className="w-8 h-8 rounded-xl bg-emerald-50 group-hover:bg-[#047857] group-hover:text-white text-[#047857] flex items-center justify-center transition-all">
                     <ArrowRight className="w-4 h-4" />
                   </div>
@@ -156,6 +173,11 @@ export const SocialView = () => {
       <JoinGroupModal
         isOpen={isJoinCodeModalOpen}
         onClose={() => setIsJoinCodeModalOpen(false)}
+      />
+      <EditGroupModal
+        group={editingGroup}
+        isOpen={!!editingGroup}
+        onClose={() => setEditingGroup(null)}
       />
     </div>
   );

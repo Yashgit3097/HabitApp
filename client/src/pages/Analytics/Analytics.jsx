@@ -1,32 +1,38 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   BarChart3,
-  TrendingUp,
-  Award,
-  Flame,
-  CheckCircle,
-  Clock,
-  Sparkles,
   Calendar,
   Users,
-  Target
+  Sparkles,
+  Shield,
+  Layers,
+  ChevronDown
 } from 'lucide-react';
 import api from '../../api/client';
 import { useAuthStore } from '../../stores/authStore';
 import { AnalyticsSkeleton } from '../../components/common/SkeletonLoader';
+import { MonthlyReportView } from '../../components/analytics/MonthlyReportView';
+import { GroupMonthlyReportView } from '../../components/analytics/GroupMonthlyReportView';
+import { getRecentMonthsList } from '../../utils/dateUtils';
 
 export const Analytics = () => {
   const { user } = useAuthStore();
+  const recentMonths = getRecentMonthsList(12);
 
-  const { data: habitsResponse, isLoading: isHabitsLoading } = useQuery({
-    queryKey: ['habits', 'analytics'],
+  const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'groups'
+  const [selectedMonth, setSelectedMonth] = useState(() => recentMonths[0]?.value || '2026-09');
+
+  // Fetch personal monthly report
+  const { data: personalReportResponse, isLoading: isPersonalReportLoading } = useQuery({
+    queryKey: ['monthlyReport', user?.id || user?._id, selectedMonth],
     queryFn: async () => {
-      const res = await api.get('/habits');
-      return res.data;
+      const res = await api.get(`/reports/monthly?month=${selectedMonth}`);
+      return res.data?.data;
     }
   });
 
+  // Fetch user groups
   const { data: groups = [], isLoading: isGroupsLoading } = useQuery({
     queryKey: ['userGroups'],
     queryFn: async () => {
@@ -35,118 +41,88 @@ export const Analytics = () => {
     }
   });
 
-  if (isHabitsLoading || isGroupsLoading) {
+  const isInitialLoading = isPersonalReportLoading && isGroupsLoading;
+
+  if (isInitialLoading) {
     return <AnalyticsSkeleton />;
   }
 
-  const habits = habitsResponse?.data || [];
-  const totalHabits = habits.length;
-  const completedToday = habits.filter((h) => h.todayLog?.isCompleted).length;
-  const completionRate = totalHabits > 0 ? Math.round((completedToday / totalHabits) * 100) : 0;
+  const personalReport = personalReportResponse;
 
   return (
-    <div className="space-y-4 max-w-2xl mx-auto">
-      {/* Header */}
-      <div>
-        <h2 className="text-xl font-black text-[#022c22] tracking-tight flex items-center gap-2">
-          <BarChart3 className="w-5 h-5 text-[#047857]" />
-          Discipline & Habit Insights
-        </h2>
-        <p className="text-xs text-gray-500 font-semibold">
-          Your personal habit consistency and social accountability metrics.
-        </p>
-      </div>
-
-      {/* 4 Stat Cards */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-        <div className="p-3.5 rounded-2xl bg-white border border-emerald-100/80 shadow-2xs flex flex-col items-center text-center">
-          <div className="w-8 h-8 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center mb-1.5">
-            <Flame className="w-4 h-4 fill-current" />
-          </div>
-          <span className="text-xl font-black text-[#022c22]">{completedToday > 0 ? '1' : '0'}</span>
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">
-            Day Streak
-          </span>
+    <div className="space-y-4 max-w-2xl mx-auto pb-10">
+      {/* Top Header Bar */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-3xl border border-emerald-100/90 shadow-2xs">
+        <div>
+          <h2 className="text-lg font-black text-[#022c22] tracking-tight flex items-center gap-2">
+            <BarChart3 className="w-5 h-5 text-[#047857]" />
+            Monthly Discipline Insights
+          </h2>
+          <p className="text-xs text-gray-500 font-semibold">
+            Overall monthly compliance reports and group performance archives.
+          </p>
         </div>
 
-        <div className="p-3.5 rounded-2xl bg-white border border-emerald-100/80 shadow-2xs flex flex-col items-center text-center">
-          <div className="w-8 h-8 rounded-xl bg-emerald-50 text-[#047857] flex items-center justify-center mb-1.5">
-            <CheckCircle className="w-4 h-4" />
+        {/* Month Selector Dropdown */}
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          <div className="relative">
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="appearance-none pl-8 pr-8 py-2 bg-emerald-50/80 hover:bg-emerald-100/80 border border-emerald-200 text-xs font-black text-emerald-950 rounded-2xl focus:outline-none focus:ring-2 focus:ring-[#10b981] transition-all cursor-pointer shadow-2xs"
+            >
+              {recentMonths.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label} {m.isCurrentMonth ? '(Current)' : ''}
+                </option>
+              ))}
+            </select>
+            <Calendar className="w-3.5 h-3.5 text-[#047857] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <ChevronDown className="w-3.5 h-3.5 text-[#047857] absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
-          <span className="text-xl font-black text-[#022c22]">{completedToday}/{totalHabits}</span>
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">
-            Today Done
-          </span>
-        </div>
-
-        <div className="p-3.5 rounded-2xl bg-white border border-emerald-100/80 shadow-2xs flex flex-col items-center text-center">
-          <div className="w-8 h-8 rounded-xl bg-teal-50 text-teal-700 flex items-center justify-center mb-1.5">
-            <TrendingUp className="w-4 h-4" />
-          </div>
-          <span className="text-xl font-black text-[#022c22]">{completionRate}%</span>
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">
-            Success Rate
-          </span>
-        </div>
-
-        <div className="p-3.5 rounded-2xl bg-white border border-emerald-100/80 shadow-2xs flex flex-col items-center text-center">
-          <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center mb-1.5">
-            <Users className="w-4 h-4" />
-          </div>
-          <span className="text-xl font-black text-[#022c22]">{groups.length}</span>
-          <span className="text-[10px] font-bold text-gray-400 uppercase tracking-tight">
-            Sankalp Groups
-          </span>
         </div>
       </div>
 
-      {/* Habit Breakdown */}
-      <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-emerald-100 space-y-3">
-        <h3 className="font-extrabold text-sm sm:text-base text-[#022c22] flex items-center gap-2">
-          <Target className="w-4 h-4 text-[#047857]" />
-          Active Habit Roster ({totalHabits})
-        </h3>
+      {/* Sub-Navigation Tabs: Personal vs Groups */}
+      <div className="grid grid-cols-2 gap-2 bg-gray-100/70 p-1.5 rounded-2xl border border-gray-200/80">
+        <button
+          onClick={() => setActiveTab('personal')}
+          className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeTab === 'personal'
+              ? 'bg-white text-[#047857] shadow-xs ring-1 ring-emerald-100'
+              : 'text-gray-500 hover:text-gray-900'
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          <span>Personal Monthly Report</span>
+        </button>
 
-        {habits.length === 0 ? (
-          <p className="text-xs text-gray-500 py-4 text-center">No active habits yet.</p>
+        <button
+          onClick={() => setActiveTab('groups')}
+          className={`py-2 px-3 rounded-xl text-xs font-black transition-all flex items-center justify-center gap-2 cursor-pointer ${
+            activeTab === 'groups'
+              ? 'bg-white text-[#047857] shadow-xs ring-1 ring-emerald-100'
+              : 'text-gray-500 hover:text-gray-900'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>Group Sankalp Reports ({groups.length})</span>
+        </button>
+      </div>
+
+      {/* Tab Content */}
+      {activeTab === 'personal' ? (
+        isPersonalReportLoading ? (
+          <div className="p-12 text-center bg-white rounded-3xl border border-gray-100">
+            <div className="w-6 h-6 border-2 border-emerald-600 border-t-transparent rounded-full animate-spin mx-auto mb-2" />
+            <p className="text-xs font-bold text-gray-500">Calculating personal monthly metrics...</p>
+          </div>
         ) : (
-          <div className="space-y-2">
-            {habits.map((h) => {
-              const isDone = h.todayLog?.isCompleted;
-              return (
-                <div
-                  key={h.id || h._id}
-                  className="p-3 rounded-xl bg-gray-50/70 border border-gray-100 flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span
-                      className={`w-2.5 h-2.5 rounded-full ${
-                        isDone ? 'bg-[#10b981]' : 'bg-rose-400'
-                      }`}
-                    />
-                    <div>
-                      <p className="text-xs font-bold text-[#022c22]">{h.title}</p>
-                      <p className="text-[10px] text-gray-400 capitalize">
-                        {h.frequency} • {h.type.replace('_', ' ')}
-                      </p>
-                    </div>
-                  </div>
-
-                  <span
-                    className={`text-[10px] font-extrabold px-2 py-0.5 rounded-md ${
-                      isDone
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-rose-50 text-rose-700'
-                    }`}
-                  >
-                    {isDone ? 'Completed Today' : 'Pending Today'}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+          <MonthlyReportView report={personalReport} canEdit={true} />
+        )
+      ) : (
+        <GroupMonthlyReportView groups={groups} selectedMonth={selectedMonth} />
+      )}
     </div>
   );
 };

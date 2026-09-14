@@ -277,7 +277,8 @@ export const collections = {
   habitLogs: new CollectionProxy('habit_logs'),
   dailyLogs: new CollectionProxy('daily_logs'),
   groups: new CollectionProxy('groups'),
-  notifications: new CollectionProxy('notifications')
+  notifications: new CollectionProxy('notifications'),
+  monthlyReports: new CollectionProxy('monthly_reports')
 };
 
 export const connectDB = async () => {

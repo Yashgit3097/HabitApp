@@ -15,12 +15,16 @@ import {
   UserX,
   Crown,
   Activity,
-  BarChart3
+  BarChart3,
+  Camera,
+  Edit3
 } from 'lucide-react';
 import api from '../../api/client';
 import { useAuthStore } from '../../stores/authStore';
 import { useUIStore } from '../../stores/uiStore';
 import { Avatar } from '../../components/common/Avatar';
+import { UpdateAvatarModal } from '../../components/common/UpdateAvatarModal';
+import { EditGroupModal } from '../../components/social/EditGroupModal';
 import { GroupMatrixBoard } from '../../components/social/GroupMatrixBoard';
 import { GroupAnalyticsCard } from '../../components/social/GroupAnalyticsCard';
 import { DateNavigator } from '../../components/habits/DateNavigator';
@@ -40,7 +44,9 @@ export const GroupDetail = () => {
 
   const [activeTab, setActiveTab] = useState('matrix'); // 'matrix' | 'analytics' | 'members'
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isEditGroupModalOpen, setIsEditGroupModalOpen] = useState(false);
   const [selectedMemberForReport, setSelectedMemberForReport] = useState(null);
+  const [memberForAvatarUpdate, setMemberForAvatarUpdate] = useState(null);
   const [selectedDate, setSelectedDate] = useState(() => getLocalDateString(new Date()));
 
   // Fetch group details
@@ -171,7 +177,16 @@ export const GroupDetail = () => {
         </div>
 
         {isAdmin && (
-          <div className="flex items-center gap-2 self-end sm:self-center">
+          <div className="flex items-center gap-2 self-end sm:self-center flex-wrap">
+            <button
+              onClick={() => setIsEditGroupModalOpen(true)}
+              className="px-3 py-2 rounded-xl bg-white/15 hover:bg-white/25 text-white text-xs font-bold transition-all cursor-pointer border border-white/20 flex items-center gap-1.5 shadow-xs"
+              title="Edit Group Settings, Photo & Description"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>Edit Group</span>
+            </button>
+
             <button
               onClick={openCreateHabit}
               className="px-3.5 py-2 rounded-xl bg-[#10b981] hover:bg-[#059669] text-[#022c22] text-xs font-black transition-colors cursor-pointer shadow-sm flex items-center gap-1.5"
@@ -300,7 +315,19 @@ export const GroupDetail = () => {
                   </div>
 
                   {/* Admin Kick Member / Self Leave button */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1.5">
+                    {/* Admin Change Member Avatar Button */}
+                    {(isAdmin || isSelf) && (
+                      <button
+                        type="button"
+                        onClick={() => setMemberForAvatarUpdate(m)}
+                        className="p-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-[#047857] text-[11px] font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                        title={isAdmin ? `Update ${m.name}'s profile photo` : 'Update your profile photo'}
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
                     <button
                       onClick={() => setSelectedMemberForReport(m)}
                       className="px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold transition-colors cursor-pointer"
@@ -357,8 +384,25 @@ export const GroupDetail = () => {
         habits={habits}
         todayLogs={todayLogs}
         selectedDate={selectedDate}
+        groupId={id}
+        isAdmin={isAdmin}
         isOpen={!!selectedMemberForReport}
         onClose={() => setSelectedMemberForReport(null)}
+      />
+
+      {/* Admin Update Member Avatar Modal */}
+      <UpdateAvatarModal
+        targetUser={memberForAvatarUpdate}
+        groupId={id}
+        isOpen={!!memberForAvatarUpdate}
+        onClose={() => setMemberForAvatarUpdate(null)}
+      />
+
+      {/* Admin Edit Group Settings Modal */}
+      <EditGroupModal
+        group={group}
+        isOpen={isEditGroupModalOpen}
+        onClose={() => setIsEditGroupModalOpen(false)}
       />
 
       <CreateHabitModal />
