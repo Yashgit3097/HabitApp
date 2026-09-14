@@ -3,7 +3,7 @@ import { io } from 'socket.io-client';
 let socket = null;
 
 // Render backend URL directly configured
-const BACKEND_URL = 'http://localhost:5000';
+const BACKEND_URL = 'https://habitapp-al74.onrender.com';
 
 export const getSocket = () => {
   if (!socket) {

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 // Render backend URL directly configured
-const BACKEND_URL = 'http://localhost:5000';
+const BACKEND_URL = 'https://habitapp-al74.onrender.com';
 
 const api = axios.create({
   baseURL: `${BACKEND_URL}/api`,
