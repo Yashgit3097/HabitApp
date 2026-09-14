@@ -32,6 +32,7 @@ import {
   Pencil
 } from 'lucide-react';
 import { Avatar } from '../common/Avatar';
+import { ProfilePhotoModal } from '../common/ProfilePhotoModal';
 import { EditReportModal } from './EditReportModal';
 import { EditHabitModal } from '../habits/EditHabitModal';
 
@@ -61,6 +62,7 @@ const ICON_MAP = {
 export const MonthlyReportView = ({ report, canEdit = false, showRemarks = true }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
 
   if (!report) {
     return (
@@ -94,12 +96,19 @@ export const MonthlyReportView = ({ report, canEdit = false, showRemarks = true 
       <div className="bg-gradient-to-r from-[#065f46] via-[#047857] to-[#065f46] rounded-2xl p-3.5 sm:p-4 text-white shadow-sm border border-emerald-400/20">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <Avatar
-              src={userProfile.avatar}
-              name={userProfile.name}
-              size="md"
-              className="ring-2 ring-emerald-300 shadow-xs shrink-0"
-            />
+            <button
+              type="button"
+              onClick={() => setIsPhotoModalOpen(true)}
+              className="relative rounded-full transition-transform duration-200 hover:scale-108 active:scale-95 cursor-pointer focus:outline-hidden shrink-0 group"
+              title="Tap to view profile picture"
+            >
+              <Avatar
+                src={userProfile.avatar}
+                name={userProfile.name}
+                size="md"
+                className="ring-2 ring-emerald-300 ring-offset-2 ring-offset-[#065f46] rounded-full shadow-xs shrink-0"
+              />
+            </button>
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="text-sm sm:text-base font-black text-white truncate">{userProfile.name}</h3>
@@ -126,6 +135,16 @@ export const MonthlyReportView = ({ report, canEdit = false, showRemarks = true 
           )}
         </div>
       </div>
+
+      {/* Profile Photo Lightbox Modal */}
+      <ProfilePhotoModal
+        isOpen={isPhotoModalOpen}
+        onClose={() => setIsPhotoModalOpen(false)}
+        src={userProfile.avatar}
+        name={userProfile.name}
+        username={userProfile.username}
+        subtitle={`${monthLabel} Report • ${activeDaysInMonth}/${daysInMonth} Days Active`}
+      />
 
       {/* 4 Compact Stat Badges */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">

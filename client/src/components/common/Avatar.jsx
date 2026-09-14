@@ -35,7 +35,7 @@ export const Avatar = ({
   const imageSrc = cleanSrc || defaultDicebear;
 
   return (
-    <div className={`relative inline-flex items-center justify-center select-none ${className}`}>
+    <div className={`relative inline-flex items-center justify-center select-none rounded-full ${className}`}>
       <div
         className={`rounded-full overflow-hidden flex items-center justify-center bg-emerald-100 text-emerald-950 font-bold border border-emerald-300 shadow-sm transition-all duration-300 ${sizeClasses[size]} ${status ? statusBorderClasses[status] : ''}`}
       >

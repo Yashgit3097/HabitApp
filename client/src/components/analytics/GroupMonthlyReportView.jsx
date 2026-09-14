@@ -14,12 +14,14 @@ import {
 } from 'lucide-react';
 import api from '../../api/client';
 import { Avatar } from '../common/Avatar';
+import { ProfilePhotoModal } from '../common/ProfilePhotoModal';
 import { MonthlyReportView } from './MonthlyReportView';
 import { motion, AnimatePresence } from 'framer-motion';
 
 export const GroupMonthlyReportView = ({ groups = [], selectedMonth }) => {
   const [selectedGroupId, setSelectedGroupId] = useState(() => (groups[0]?.id || groups[0]?._id || ''));
   const [activeMemberReport, setActiveMemberReport] = useState(null);
+  const [photoModalData, setPhotoModalData] = useState(null);
 
   // Instant fallback to first group if selectedGroupId is empty
   const activeGroupId = (selectedGroupId || groups[0]?.id || groups[0]?._id || '').toString();
@@ -112,11 +114,24 @@ export const GroupMonthlyReportView = ({ groups = [], selectedMonth }) => {
           <div className="bg-gradient-to-r from-[#065f46] via-[#047857] to-[#065f46] rounded-2xl p-3.5 sm:p-4 text-white shadow-sm border border-emerald-400/20">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3 min-w-0">
-                <img
-                  src={groupSummary.groupAvatar}
-                  alt={groupSummary.groupName}
-                  className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl object-cover ring-2 ring-emerald-300 shadow-xs bg-white shrink-0"
-                />
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPhotoModalData({
+                      src: groupSummary.groupAvatar,
+                      name: groupSummary.groupName,
+                      subtitle: `${groupSummary.memberCount} Members • Sankalp Group`
+                    })
+                  }
+                  className="relative rounded-full transition-transform duration-200 hover:scale-108 active:scale-95 cursor-pointer focus:outline-hidden shrink-0 group"
+                  title="Tap to view group image"
+                >
+                  <img
+                    src={groupSummary.groupAvatar}
+                    alt={groupSummary.groupName}
+                    className="w-10 h-10 sm:w-11 sm:h-11 rounded-full object-cover ring-2 ring-emerald-300 ring-offset-2 ring-offset-[#065f46] shadow-xs bg-white shrink-0"
+                  />
+                </button>
                 <div className="min-w-0">
                   <h3 className="text-sm sm:text-base font-black truncate">{groupSummary.groupName}</h3>
                   <p className="text-[11px] text-emerald-200 font-semibold flex items-center gap-1.5 mt-0.5">
@@ -128,8 +143,20 @@ export const GroupMonthlyReportView = ({ groups = [], selectedMonth }) => {
               </div>
 
               {topPerformer && (
-                <div className="bg-emerald-950/50 border border-emerald-400/30 rounded-xl px-3 py-1.5 flex items-center gap-2 self-start sm:self-auto">
-                  <Avatar src={topPerformer.avatar} name={topPerformer.name} size="xs" className="ring-1 ring-amber-400" />
+                <div
+                  onClick={() =>
+                    setPhotoModalData({
+                      src: topPerformer.avatar,
+                      name: topPerformer.name,
+                      username: topPerformer.username,
+                      role: topPerformer.role,
+                      subtitle: `🏆 Top Performer • ${topPerformer.disciplineScore} Score`
+                    })
+                  }
+                  className="bg-emerald-950/50 border border-emerald-400/30 rounded-xl px-3 py-1.5 flex items-center gap-2 self-start sm:self-auto cursor-pointer hover:bg-emerald-950/70 transition-all"
+                  title="Tap to view performer details"
+                >
+                  <Avatar src={topPerformer.avatar} name={topPerformer.name} size="xs" className="ring-1 ring-amber-400 rounded-full" />
                   <div className="text-left min-w-0">
                     <p className="text-[9px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1">
                       <Trophy className="w-2.5 h-2.5 fill-amber-300 text-amber-300" />
@@ -198,12 +225,29 @@ export const GroupMonthlyReportView = ({ groups = [], selectedMonth }) => {
                           {index + 1}
                         </div>
 
-                        <Avatar
-                          src={member.avatar}
-                          name={member.name}
-                          size="sm"
-                          className="shrink-0 ring-1 ring-emerald-200"
-                        />
+                        {/* Tap-to-view Profile Avatar */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPhotoModalData({
+                              src: member.avatar,
+                              name: member.name,
+                              username: member.username,
+                              role: member.role,
+                              subtitle: `Rank #${index + 1} • ${member.disciplineScore} Discipline Score`
+                            });
+                          }}
+                          className="relative rounded-full transition-transform duration-200 hover:scale-110 active:scale-95 cursor-pointer focus:outline-hidden shrink-0 group"
+                          title={`Tap to view ${member.name}'s photo`}
+                        >
+                          <Avatar
+                            src={member.avatar}
+                            name={member.name}
+                            size="sm"
+                            className="shrink-0 ring-1 ring-emerald-200 rounded-full"
+                          />
+                        </button>
 
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
@@ -256,7 +300,27 @@ export const GroupMonthlyReportView = ({ groups = [], selectedMonth }) => {
             >
               <div className="p-3.5 bg-gradient-to-r from-[#065f46] via-[#047857] to-[#065f46] text-white flex items-center justify-between">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <Avatar src={activeMemberReport.avatar} name={activeMemberReport.name} size="sm" />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setPhotoModalData({
+                        src: activeMemberReport.avatar,
+                        name: activeMemberReport.name,
+                        username: activeMemberReport.username,
+                        role: activeMemberReport.role,
+                        subtitle: `${activeMemberReport.name}'s Profile Picture`
+                      })
+                    }
+                    className="relative rounded-full transition-transform duration-200 hover:scale-108 active:scale-95 cursor-pointer focus:outline-hidden shrink-0"
+                    title="Tap to view profile picture"
+                  >
+                    <Avatar
+                      src={activeMemberReport.avatar}
+                      name={activeMemberReport.name}
+                      size="sm"
+                      className="ring-2 ring-emerald-300 ring-offset-1 ring-offset-[#065f46] rounded-full"
+                    />
+                  </button>
                   <div className="min-w-0">
                     <h3 className="font-extrabold text-xs sm:text-sm text-white truncate">{activeMemberReport.name}'s Monthly Breakdown</h3>
                     <p className="text-[10px] text-emerald-200">Group Tasks Performance</p>
@@ -291,6 +355,17 @@ export const GroupMonthlyReportView = ({ groups = [], selectedMonth }) => {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Global Profile Photo Lightbox Modal */}
+      <ProfilePhotoModal
+        isOpen={!!photoModalData}
+        onClose={() => setPhotoModalData(null)}
+        src={photoModalData?.src}
+        name={photoModalData?.name}
+        username={photoModalData?.username}
+        role={photoModalData?.role}
+        subtitle={photoModalData?.subtitle}
+      />
     </div>
   );
 };
