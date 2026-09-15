@@ -38,7 +38,8 @@ const formatDate = (year, month, day) => {
 /**
  * Compute and persist user's all-time Discipline Score in database
  * (+1 for each distinct day where 100% of all assigned habits were completed)
- * This score NEVER resets on new days.
+ * This score NEVER resets on new days or after monthly log archiving.
+ * Dynamically increases when 100% is reached and decreases if past editable days are uncompleted.
  */
 export const computeAndSaveUserDisciplineScore = async (userId) => {
   if (!userId) return 0;
@@ -64,12 +65,28 @@ export const computeAndSaveUserDisciplineScore = async (userId) => {
   const allUserHabitIds = allUserHabits.map((h) => (h.id || h._id).toString());
   const totalHabitsCount = allUserHabitIds.length;
 
-  if (totalHabitsCount === 0) {
-    await collections.users.updateOne({ id: targetUserId }, { disciplineScore: 0 });
-    return 0;
-  }
+  // 2. Fetch past finalized monthly reports to preserve historical score after raw logs are archived/pruned
+  const now = new Date();
+  const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-  // 2. Fetch all logs for this user
+  const allMonthlyReports = await collections.monthlyReports.find();
+  const pastFinalizedReports = allMonthlyReports.filter(
+    (r) =>
+      (r.userId || '').toString() === targetUserId &&
+      !r.groupId &&
+      r.status === 'finalized' &&
+      r.month &&
+      r.month < currentMonthStr
+  );
+
+  let pastFinalizedScore = 0;
+  const finalizedMonthsSet = new Set();
+  pastFinalizedReports.forEach((r) => {
+    finalizedMonthsSet.add(r.month);
+    pastFinalizedScore += Number(r.overallStats?.perfectDays || r.overallStats?.disciplineScore || 0);
+  });
+
+  // 3. Fetch active logs for this user (current month and unfinalized recent logs)
   const allLogs = await collections.habitLogs.find();
   const userLogs = allLogs.filter((l) => (l.userId || '').toString() === targetUserId);
 
@@ -89,20 +106,30 @@ export const computeAndSaveUserDisciplineScore = async (userId) => {
     }
   }
 
-  let score = 0;
-  for (const dateStr in completedHabitsByDate) {
-    const completedSet = completedHabitsByDate[dateStr];
-    const completedCountForDate = allUserHabitIds.filter((hId) => completedSet.has(hId)).length;
+  let activeLogsScore = 0;
+  if (totalHabitsCount > 0) {
+    for (const dateStr in completedHabitsByDate) {
+      const monthOfDate = dateStr.slice(0, 7);
+      // Skip if date belongs to an already finalized past month to prevent double counting
+      if (finalizedMonthsSet.has(monthOfDate)) {
+        continue;
+      }
 
-    // Check if all assigned habits were completed on this date
-    if (completedCountForDate >= totalHabitsCount && totalHabitsCount > 0) {
-      score += 1;
+      const completedSet = completedHabitsByDate[dateStr];
+      const completedCountForDate = allUserHabitIds.filter((hId) => completedSet.has(hId)).length;
+
+      // Check if all assigned habits were 100% completed on this date
+      if (completedCountForDate >= totalHabitsCount) {
+        activeLogsScore += 1;
+      }
     }
   }
 
+  const totalAllTimeScore = pastFinalizedScore + activeLogsScore;
+
   // Update disciplineScore in user document in database
-  await collections.users.updateOne({ id: targetUserId }, { disciplineScore: score });
-  return score;
+  await collections.users.updateOne({ id: targetUserId }, { disciplineScore: totalAllTimeScore });
+  return totalAllTimeScore;
 };
 
 // @desc    Get user's all-time Discipline Score

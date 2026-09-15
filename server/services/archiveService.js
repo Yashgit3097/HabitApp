@@ -351,7 +351,24 @@ export const ensureCurrentMonthReportsGenerated = async (targetMonthOverride = n
       const allUserHabits = [...personalHabits, ...groupHabits];
       const allUserHabitIds = allUserHabits.map((h) => (h.id || h._id).toString());
 
-      // 1. Calculate All-Time Discipline Score
+      // 1. Calculate All-Time Discipline Score (Past Finalized Reports + Active Logs)
+      const allMonthlyReports = await collections.monthlyReports.find();
+      const pastFinalizedReports = allMonthlyReports.filter(
+        (r) =>
+          (r.userId || '').toString() === userId &&
+          !r.groupId &&
+          r.status === 'finalized' &&
+          r.month &&
+          r.month < targetMonthStr
+      );
+
+      let pastFinalizedScore = 0;
+      const finalizedMonthsSet = new Set();
+      pastFinalizedReports.forEach((r) => {
+        finalizedMonthsSet.add(r.month);
+        pastFinalizedScore += Number(r.overallStats?.perfectDays || r.overallStats?.disciplineScore || 0);
+      });
+
       const userAllLogs = allLogs.filter((l) => (l.userId || '').toString() === userId);
       const completedHabitsByDate = {};
       for (const log of userAllLogs) {
@@ -368,16 +385,23 @@ export const ensureCurrentMonthReportsGenerated = async (targetMonthOverride = n
         }
       }
 
-      let allTimeScore = 0;
+      let activeLogsScore = 0;
       if (allUserHabitIds.length > 0) {
         for (const dateStr in completedHabitsByDate) {
+          const monthOfDate = dateStr.slice(0, 7);
+          if (finalizedMonthsSet.has(monthOfDate)) {
+            continue;
+          }
+
           const completedSet = completedHabitsByDate[dateStr];
           const count = allUserHabitIds.filter((hId) => completedSet.has(hId)).length;
           if (count >= allUserHabitIds.length) {
-            allTimeScore += 1;
+            activeLogsScore += 1;
           }
         }
       }
+
+      const allTimeScore = pastFinalizedScore + activeLogsScore;
 
       // Update user disciplineScore in database
       await collections.users.updateOne({ id: userId }, { disciplineScore: allTimeScore });
