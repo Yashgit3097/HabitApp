@@ -81,15 +81,24 @@ export const getRelativeDateLabel = (dateStr) => {
 };
 
 /**
- * Checks if a YYYY-MM-DD date is within the allowed [-3, +3] days editing window relative to today.
+ * Checks if a YYYY-MM-DD date is within the allowed editing window.
+ * TEMPORARILY UNLOCKED for data fillup (returns true for all dates).
+ * To restore the old ±3-day locking rule, uncomment the original logic below.
  */
 export const isDateWithinEditableWindow = (dateStr) => {
   if (!dateStr) return false;
+
+  // --- TEMPORARILY UNLOCKED: Allow all days for data fillup ---
+  return true;
+
+  /*
+  // --- ORIGINAL RESTRICTION LOGIC (Uncomment to re-enable ±3 days locking) ---
   const targetDate = parseLocalDate(dateStr);
   const today = parseLocalDate(getLocalDateString(new Date()));
   const diffTime = targetDate.getTime() - today.getTime();
   const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
   return Math.abs(diffDays) <= 3;
+  */
 };
 
 /**

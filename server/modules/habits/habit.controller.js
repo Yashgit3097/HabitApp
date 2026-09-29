@@ -250,7 +250,9 @@ export const logHabit = async (req, res) => {
       notes = ''
     } = req.body;
 
-    // Enforce ±3-day locking rule
+    // --- TEMPORARILY UNLOCKED: Allow all days for data fillup ---
+    // (Uncomment the block below whenever you want to restore the ±3-day locking rule)
+    /*
     const targetDateObj = new Date(date + 'T00:00:00');
     const todayStr = new Date().toISOString().split('T')[0];
     const todayObj = new Date(todayStr + 'T00:00:00');
@@ -263,6 +265,7 @@ export const logHabit = async (req, res) => {
         message: 'This date is locked! You can only log habits within 3 days before and 3 days after today.'
       });
     }
+    */
 
     const habit = await collections.habits.findById(habitId);
     if (!habit) {
