@@ -182,13 +182,15 @@ export const updateHabit = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Habit not found' });
     }
 
-    // Permission check
+    // Permission check: Only the Task Creator or the Group Admin can edit
     if (habit.groupId) {
       const group = await collections.groups.findById(habit.groupId);
-      if (!group || (group.adminId || '').toString() !== userId.toString()) {
+      const isGroupAdmin = group && (group.adminId || '').toString() === userId.toString();
+      const isCreator = (habit.userId || '').toString() === userId.toString();
+      if (!isGroupAdmin && !isCreator) {
         return res.status(403).json({
           success: false,
-          message: 'Only the Group Admin can edit this group habit'
+          message: 'Only the Group Admin or the Task Creator can edit this task'
         });
       }
     } else if ((habit.userId || '').toString() !== userId.toString()) {

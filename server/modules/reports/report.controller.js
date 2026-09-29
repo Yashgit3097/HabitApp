@@ -235,11 +235,15 @@ export const getMonthlyReport = async (req, res) => {
       habitsToReport = [...personalHabits, ...groupHabits];
     }
 
-    // Fetch all logs in target month for this user
+    // Fetch all logs in target month for this user strictly within the active day range
     const allLogs = await collections.habitLogs.find();
-    const monthLogs = allLogs.filter(
-      (l) => (l.userId || '').toString() === targetUserId.toString() && l.date && l.date.startsWith(targetMonthStr)
-    );
+    const monthLogs = allLogs.filter((l) => {
+      if ((l.userId || '').toString() !== targetUserId.toString() || !l.date || !l.date.startsWith(targetMonthStr)) {
+        return false;
+      }
+      const logDay = parseInt(l.date.split('-')[2], 10);
+      return logDay >= effectiveStartDay && logDay <= maxDayToCount;
+    });
 
     // Aggregate statistics per habit
     const habitSummaries = habitsToReport.map((habit) => {
@@ -573,7 +577,13 @@ export const getGroupMonthlySummary = async (req, res) => {
 
       const activeDays = Math.max(1, maxDayToCount - effectiveStartDay + 1);
 
-      const memberLogs = relevantLogs.filter((l) => (l.userId || '').toString() === memberUserId);
+      const memberLogs = relevantLogs.filter((l) => {
+        if ((l.userId || '').toString() !== memberUserId || !l.date || !l.date.startsWith(targetMonthStr)) {
+          return false;
+        }
+        const logDay = parseInt(l.date.split('-')[2], 10);
+        return logDay >= effectiveStartDay && logDay <= maxDayToCount;
+      });
       const completedLogs = memberLogs.filter(
         (l) =>
           Boolean(l.isCompleted) ||

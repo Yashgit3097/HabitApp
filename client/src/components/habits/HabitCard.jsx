@@ -41,6 +41,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useUIStore } from '../../stores/uiStore';
 import { emitHabitUpdate } from '../../api/socket';
 import { isDateWithinEditableWindow } from '../../utils/dateUtils';
+import { useAuthStore } from '../../stores/authStore';
 import { EditHabitModal } from './EditHabitModal';
 
 const ICON_MAP = {
@@ -69,8 +70,15 @@ const ICON_MAP = {
 export const HabitCard = ({ habit, selectedDate }) => {
   const queryClient = useQueryClient();
   const { showToast } = useUIStore();
+  const { user } = useAuthStore();
   const [showOptions, setShowOptions] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  // Permission check: strictly only Task Creator or Group Admin can edit/delete
+  const currentUserId = user?.id || user?._id;
+  const isCreator = currentUserId && ((habit.userId || '').toString() === currentUserId.toString() || habit.isOwner);
+  const isGroupAdmin = Boolean(habit.isGroupAdmin);
+  const canManage = Boolean(habit.canManage ?? (isCreator || isGroupAdmin));
 
   // Check if date is editable within [-3, +3] window
   const isEditable = isDateWithinEditableWindow(selectedDate);
@@ -421,7 +429,7 @@ export const HabitCard = ({ habit, selectedDate }) => {
             {isDone ? <Check className="w-4 h-4 stroke-[3]" /> : <Check className="w-4 h-4 stroke-[2]" />}
           </button>
 
-          {habit.canManage !== false && (
+          {canManage && (
             <div className="relative">
               <button
                 onClick={() => setShowOptions(!showOptions)}

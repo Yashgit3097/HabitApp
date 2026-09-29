@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import { Avatar } from '../common/Avatar';
 import { ProfilePhotoModal } from '../common/ProfilePhotoModal';
+import { useAuthStore } from '../../stores/authStore';
 import { EditReportModal } from './EditReportModal';
 import { EditHabitModal } from '../habits/EditHabitModal';
 
@@ -60,9 +61,12 @@ const ICON_MAP = {
 };
 
 export const MonthlyReportView = ({ report, canEdit = false, showRemarks = true }) => {
+  const { user } = useAuthStore();
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingHabit, setEditingHabit] = useState(null);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+
+  const currentUserId = user?.id || user?._id;
 
   if (!report) {
     return (
@@ -85,6 +89,8 @@ export const MonthlyReportView = ({ report, canEdit = false, showRemarks = true 
     habitSummaries = [],
     adminRemarks
   } = report;
+
+  const isReportOwner = currentUserId && (userProfile?.id || report?.userId)?.toString() === currentUserId.toString();
 
   // Month formatted title
   const monthDate = new Date(year, monthNumber - 1, 1);
@@ -249,7 +255,7 @@ export const MonthlyReportView = ({ report, canEdit = false, showRemarks = true 
                     </div>
 
                     <div className="flex items-center gap-1.5 shrink-0">
-                      {canEdit && (
+                      {canEdit && (isReportOwner || (currentUserId && h.userId?.toString() === currentUserId.toString()) || report.isAdmin || h.isGroupAdmin) && (
                         <button
                           type="button"
                           onClick={() => setEditingHabit({ id: h.habitId, _id: h.habitId, ...h })}

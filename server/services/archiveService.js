@@ -98,9 +98,13 @@ export const runMonthlyArchiveAndCleanup = async () => {
         (h) => (h.userId || '').toString() === userId && !h.groupId
       );
 
-      const userMonthLogs = allLogs.filter(
-        (l) => (l.userId || '').toString() === userId && l.date && l.date.startsWith(prevMonthStr)
-      );
+      const userMonthLogs = allLogs.filter((l) => {
+        if ((l.userId || '').toString() !== userId || !l.date || !l.date.startsWith(prevMonthStr)) {
+          return false;
+        }
+        const logDay = parseInt(l.date.split('-')[2], 10);
+        return logDay >= effectiveStartDay && logDay <= daysInPrevMonth;
+      });
 
       const habitSummaries = personalHabits.map((habit) => {
         const habitId = (habit.id || habit._id).toString();
