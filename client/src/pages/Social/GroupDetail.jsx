@@ -257,6 +257,8 @@ export const GroupDetail = () => {
       {/* Tab 2: Group Reports & Analytics */}
       {activeTab === 'analytics' && (
         <GroupAnalyticsCard
+          groupId={id}
+          group={group}
           habits={habits}
           members={members}
           todayLogs={todayLogs}

@@ -121,7 +121,11 @@ export const Analytics = () => {
           <MonthlyReportView report={personalReport} canEdit={true} />
         )
       ) : (
-        <GroupMonthlyReportView groups={groups} selectedMonth={selectedMonth} />
+        <GroupMonthlyReportView
+          groups={groups}
+          selectedMonth={selectedMonth}
+          onSelectMonth={setSelectedMonth}
+        />
       )}
     </div>
   );

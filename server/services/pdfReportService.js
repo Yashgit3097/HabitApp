@@ -5,6 +5,7 @@ import puppeteer from 'puppeteer';
 import puppeteerCore from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
 import PDFDocument from 'pdfkit';
+import { collections } from '../config/db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -23,6 +24,31 @@ const MONTH_NAMES = [
   'નવેમ્બર',
   'ડિસેમ્બર'
 ];
+
+// Helper: parse HH:MM AM/PM to minutes from midnight
+const timeStringToMinutes = (timeStr) => {
+  if (!timeStr || typeof timeStr !== 'string') return null;
+  const match = timeStr.trim().match(/^(\d{1,2}):(\d{2})\s*(AM|PM)?$/i);
+  if (!match) return null;
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  const meridian = match[3] ? match[3].toUpperCase() : null;
+
+  if (meridian === 'PM' && hours < 12) hours += 12;
+  if (meridian === 'AM' && hours === 12) hours = 0;
+
+  return hours * 60 + minutes;
+};
+
+// Helper: convert minutes from midnight to HH:MM AM/PM
+const minutesToTimeString = (totalMinutes) => {
+  if (totalMinutes === null || isNaN(totalMinutes)) return 'N/A';
+  let hours = Math.floor(totalMinutes / 60) % 24;
+  const minutes = Math.round(totalMinutes % 60);
+  const meridian = hours >= 12 ? 'PM' : 'AM';
+  hours = hours % 12 || 12;
+  return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')} ${meridian}`;
+};
 
 /**
  * Common Chromium Launch Arguments for Cloud & Local Environments
@@ -259,7 +285,7 @@ const optimizeAvatarUrl = (url, size = 120) => {
  * Guarantees 100% crisp, colorful icons on Render Linux with zero missing emoji font issues
  */
 const ICONS = {
-  trophy: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" style="display:inline-block;vertical-align:middle"><path d="M7 4h10v5a5 5 0 01-10 0V4z" fill="#f59e0b"/><path d="M5 6H3a2 2 0 00-2 2v1a4 4 0 004 4h2V9H5V6zm14 0h2a2 2 0 012 2v1a4 4 0 01-4 4h-2V9h2V6z" fill="#fbbf24"/><path d="M10 16h4v3h-4z" fill="#d97706"/><path d="M8 19h8v2H8z" fill="#b45309"/></svg>`,
+  trophy: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" style="display:inline-block;vertical-align:-2px"><path d="M7 4h10v5a5 5 0 01-10 0V4z" fill="#f59e0b"/><path d="M5 6H3a2 2 0 00-2 2v1a4 4 0 004 4h2V9H5V6zm14 0h2a2 2 0 012 2v1a4 4 0 01-4 4h-2V9h2V6z" fill="#fbbf24"/><path d="M10 16h4v3h-4z" fill="#d97706"/><path d="M8 19h8v2H8z" fill="#b45309"/></svg>`,
   
   calendar: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" style="display:inline-block;vertical-align:-1.5px;margin-right:3px"><rect x="3" y="4" width="18" height="18" rx="3" fill="#0f766e" stroke="#99f6e4" stroke-width="1.2"/><rect x="3" y="4" width="18" height="5" rx="2" fill="#115e59"/><circle cx="7.5" cy="13" r="1.2" fill="#ccfbf1"/><circle cx="12" cy="13" r="1.2" fill="#ccfbf1"/><circle cx="16.5" cy="13" r="1.2" fill="#ccfbf1"/><circle cx="7.5" cy="17.5" r="1.2" fill="#ccfbf1"/><circle cx="12" cy="17.5" r="1.2" fill="#ccfbf1"/><circle cx="16.5" cy="17.5" r="1.2" fill="#ccfbf1"/></svg>`,
   
@@ -267,17 +293,82 @@ const ICONS = {
   
   clipboard: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" style="display:inline-block;vertical-align:middle"><rect x="4" y="5" width="16" height="16" rx="2" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><path d="M9 3h6a1 1 0 011 1v2H8V4a1 1 0 011-1z" fill="#0f766e"/><path d="M8 11h8M8 15h5" stroke="#0f766e" stroke-width="1.5" stroke-linecap="round"/></svg>`,
   
-  star: `<svg viewBox="0 0 24 24" width="14" height="14" fill="#f59e0b" style="display:inline-block;vertical-align:-2px;margin-right:4px"><path d="M12 2l2.9 6.2 6.8.9-5 4.8 1.2 6.8-5.9-3.2-5.9 3.2 1.2-6.8-5-4.8 6.8-.9z"/></svg>`,
+  star: `<svg viewBox="0 0 24 24" width="14" height="14" fill="#f59e0b" style="display:inline-block;vertical-align:-2px;margin:0 2px"><path d="M12 2l2.9 6.2 6.8.9-5 4.8 1.2 6.8-5.9-3.2-5.9 3.2 1.2-6.8-5-4.8 6.8-.9z"/></svg>`,
   
-  prayingHands: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" style="display:inline-block;vertical-align:-2px;margin-left:4px"><path d="M10 4a1.5 1.5 0 013 0v10l-1.5 1.5L10 14V4z" fill="#fbbf24"/><path d="M6.5 7a1.5 1.5 0 013 0v8l-2 2-1-1V7z" fill="#f59e0b"/><path d="M14.5 7a1.5 1.5 0 013 0v8l-2 2-1-1V7z" fill="#f59e0b"/><path d="M12 21c-3 0-5-2-5-4l5-2 5 2c0 2-2 4-5 4z" fill="#d97706"/></svg>`,
+  prayingHands: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" style="display:inline-block;vertical-align:-2.5px;margin:0 2px"><path d="M11 2.5a1.5 1.5 0 0 1 2 0v10l-2 1.8-2-1.8V5a1.5 1.5 0 0 1 2-2.5z" fill="#f59e0b"/><path d="M7 6a1.5 1.5 0 0 1 2 0v8l-2 1.8-1.5-1.5V7.5A1.5 1.5 0 0 1 7 6z" fill="#fbbf24"/><path d="M17 6a1.5 1.5 0 0 0-2 0v8l2 1.8 1.5-1.5V7.5A1.5 1.5 0 0 0 17 6z" fill="#fbbf24"/><path d="M12 21.5c-3.5 0-5.5-2.2-5.5-4.5l5.5-2 5.5 2c0 2.3-2 4.5-5.5 4.5z" fill="#d97706"/></svg>`,
   
-  sparkle: `<svg viewBox="0 0 24 24" width="14" height="14" fill="#0f766e" style="display:inline-block;vertical-align:middle"><path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5Z"/></svg>`,
+  sparkle: `<svg viewBox="0 0 24 24" width="14" height="14" fill="#0f766e" style="display:inline-block;vertical-align:-2px;margin:0 2px"><path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5Z"/></svg>`,
   
+  shield: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" style="display:inline-block;vertical-align:-2px;margin:0 2px"><path d="M12 2L4 5v6.5C4 16.5 7.5 21 12 22c4.5-1 8-5.5 8-10.5V5l-8-3z" fill="#047857"/><path d="M12 4.2V19.8C15 18.8 17.8 15 17.8 11.5V6.3L12 4.2z" fill="#10b981"/><path d="M9 11l2 2 4-4" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+
+  shieldGold: `<svg viewBox="0 0 24 24" width="22" height="22" fill="none" style="display:inline-block;vertical-align:middle"><path d="M12 2L4 5v6.5C4 16.5 7.5 21 12 22c4.5-1 8-5.5 8-10.5V5l-8-3z" fill="#b45309"/><path d="M12 4.2V19.8C15 18.8 17.8 15 17.8 11.5V6.3L12 4.2z" fill="#f59e0b"/><path d="M9 11l2 2 4-4" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+
+  sparkleGold: `<svg viewBox="0 0 24 24" width="22" height="22" fill="#fbbf24" style="display:inline-block;vertical-align:middle"><path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5Z"/></svg>`,
+
+  crown: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" style="display:inline-block;vertical-align:-2px;margin:0 2px"><path d="M3 18h18v2H3v-2zm1.5-3l2.5-8 5 4 5-4 2.5 8H4.5z" fill="#f59e0b"/></svg>`,
+
+  fire: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" style="display:inline-block;vertical-align:-2px;margin:0 2px"><path d="M12 23c-4.97 0-9-4.03-9-9 0-3.87 2.33-7.23 6-8.48V8c0 1.66 1.34 3 3 3s3-1.34 3-3V5.52c3.67 1.25 6 4.61 6 8.48 0 4.97-4.03 9-9 9z" fill="#ef4444"/><path d="M12 19c-2.76 0-5-2.24-5-5 0-1.85 1.01-3.46 2.5-4.32V11c0 1.1.9 2 2 2s2-.9 2-2v-1.32c1.49.86 2.5 2.47 2.5 4.32 0 2.76-2.24 5-5 5z" fill="#fbbf24"/></svg>`,
+
+  heart: `<svg viewBox="0 0 24 24" width="15" height="15" fill="#ef4444" style="display:inline-block;vertical-align:-2px;margin:0 2px"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`,
+
+  flower: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" style="display:inline-block;vertical-align:-2px;margin:0 2px"><circle cx="12" cy="12" r="3" fill="#f59e0b"/><path d="M12 4a3 3 0 0 0-3 3c0 2 3 4 3 4s3-2 3-4a3 3 0 0 0-3-3zm0 16a3 3 0 0 0 3-3c0-2-3-4-3-4s-3 2-3 4a3 3 0 0 0 3 3zm-8-8a3 3 0 0 0 3 3c2 0 4-3 4-3s-2-3-4-3a3 3 0 0 0-3 3zm16 0a3 3 0 0 0-3-3c-2 0-4 3-4 3s2 3 4 3a3 3 0 0 0 3-3z" fill="#ec4899"/></svg>`,
+
+  book: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" style="display:inline-block;vertical-align:-2px;margin:0 2px"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5z" fill="#3b82f6"/><path d="M6 2v17.5a2.5 2.5 0 0 0 2.5 2.5H20V2H6z" fill="#60a5fa"/><path d="M9 7h8M9 11h6" stroke="#ffffff" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+
+  rosary: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" style="display:inline-block;vertical-align:-2px;margin:0 2px"><circle cx="12" cy="7" r="2.5" fill="#f59e0b"/><circle cx="6.5" cy="11" r="2" fill="#d97706"/><circle cx="17.5" cy="11" r="2" fill="#d97706"/><circle cx="8" cy="17" r="2" fill="#d97706"/><circle cx="16" cy="17" r="2" fill="#d97706"/><circle cx="12" cy="19" r="2.5" fill="#b45309"/><path d="M12 19v4m-2-2h4" stroke="#b45309" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+
+  check: `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" style="display:inline-block;vertical-align:-2px;margin:0 2px"><circle cx="12" cy="12" r="10" fill="#10b981"/><path d="M8 12l3 3 5-5" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+
   goldMedal: `<span style="display:inline-flex;align-items:center;justify-content:center;gap:3px"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><circle cx="12" cy="12" r="10" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M12 5l1.5 3.5 3.8.4-2.8 2.6.7 3.8-3.2-1.8-3.2 1.8.7-3.8-2.8-2.6 3.8-.4z" fill="#b45309"/></svg> 1</span>`,
   
   silverMedal: `<span style="display:inline-flex;align-items:center;justify-content:center;gap:3px"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><circle cx="12" cy="12" r="10" fill="#64748b"/><circle cx="12" cy="12" r="7.5" fill="#94a3b8"/><path d="M12 5l1.5 3.5 3.8.4-2.8 2.6.7 3.8-3.2-1.8-3.2 1.8.7-3.8-2.8-2.6 3.8-.4z" fill="#334155"/></svg> 2</span>`,
   
   bronzeMedal: `<span style="display:inline-flex;align-items:center;justify-content:center;gap:3px"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><circle cx="12" cy="12" r="10" fill="#b45309"/><circle cx="12" cy="12" r="7.5" fill="#d97706"/><path d="M12 5l1.5 3.5 3.8.4-2.8 2.6.7 3.8-3.2-1.8-3.2 1.8.7-3.8-2.8-2.6 3.8-.4z" fill="#78350f"/></svg> 3</span>`
+};
+
+/**
+ * Format any user string / title for HTML reports by replacing emoji unicodes with high-res inline SVGs
+ * Completely eliminates broken boxes for 🙏🏻, 🙏, 🏆, ✨, 🌟, 🛡️, etc.
+ */
+const formatHTMLTextWithSvgIcons = (str) => {
+  if (!str || typeof str !== 'string') return '';
+  return str
+    // Praying hands with all skin tones (🙏🏻, 🙏🏼, 🙏🏽, 🙏🏾, 🙏🏿, 🙏)
+    .replace(/(?:\u{1F64F}[\u{1F3FB}-\u{1F3FF}]?|\u{1F64C}|\u{1F91D})/gu, ICONS.prayingHands)
+    // Trophies, crowns, medals
+    .replace(/\u{1F3C6}/gu, ICONS.trophy)
+    .replace(/\u{1F451}/gu, ICONS.crown)
+    .replace(/\u{1F947}/gu, ICONS.goldMedal)
+    .replace(/\u{1F948}/gu, ICONS.silverMedal)
+    .replace(/\u{1F949}/gu, ICONS.bronzeMedal)
+    // Sparkles, stars, shields
+    .replace(/(?:\u{2728}|\u2728)/gu, ICONS.sparkle)
+    .replace(/(?:\u{1F31F}|\u{2B50}|\u2B50)/gu, ICONS.star)
+    .replace(/(?:\u{1F6E1}\uFE0F?|\u{1F6E1})/gu, ICONS.shield)
+    // Fire, hearts
+    .replace(/\u{1F525}/gu, ICONS.fire)
+    .replace(/(?:\u{2764}\uFE0F?|\u{1F496}|\u{1F497}|\u{1F90D}|\u{1F90E}|\u{1F9E1})/gu, ICONS.heart)
+    // Target, books, beads, flowers, check
+    .replace(/\u{1F3AF}/gu, ICONS.target)
+    .replace(/(?:\u{1F4D6}|\u{1F4D5}|\u{1F4D8}|\u{1F4DA})/gu, ICONS.book)
+    .replace(/\u{1F4FF}/gu, ICONS.rosary)
+    .replace(/(?:\u{1F338}|\u{1F33A}|\u{1F33C}|\u{1F337}|\u{1F33F})/gu, ICONS.flower)
+    .replace(/(?:\u{2705}|\u{2714}\uFE0F?)/gu, ICONS.check)
+    // Strip any remaining exotic emojis/skin-tones/variation selectors that cannot render natively
+    .replace(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '')
+    .replace(/[\u{1F3FB}-\u{1F3FF}\uFE00-\uFE0F\u200D\u200C]/gu, '')
+    .trim();
+};
+
+/**
+ * Clean text for PDFKit standard TTF fonts (strips all non-printable emojis to prevent font errors)
+ */
+const cleanTextForPDFKit = (text) => {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '')
+    .replace(/[\u{1F3FB}-\u{1F3FF}\uFE00-\uFE0F\u200D\u200C]/gu, '')
+    .trim();
 };
 
 /**
@@ -291,9 +382,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
 
   const totalMembers = memberReports.length;
 
-  const cleanGroupName = (group.name || 'Sankalp Group')
-    .replace(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
-    .trim();
+  const cleanGroupName = formatHTMLTextWithSvgIcons(group.name || 'Sankalp Group');
 
   const avgCompletion =
     totalMembers > 0
@@ -346,9 +435,9 @@ const buildReportHTML = (group, monthStr, memberReports) => {
         60
       );
 
-      const initial = (
-        m.userProfile?.name || 'U'
-      )
+      const rawUserName = m.userProfile?.name || 'Unknown';
+      const formattedUserName = formatHTMLTextWithSvgIcons(rawUserName);
+      const initial = (cleanTextForPDFKit(rawUserName) || 'U')
         .charAt(0)
         .toUpperCase();
 
@@ -382,7 +471,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
               ${avatarHTML}
 
               <div class="member-name-text">
-                ${m.userProfile?.name || 'Unknown'}
+                ${formattedUserName}
               </div>
             </div>
           </td>
@@ -412,8 +501,8 @@ const buildReportHTML = (group, monthStr, memberReports) => {
    */
   const memberPagesHTML = memberReports
     .map((report, idx) => {
-      const memberName =
-        report.userProfile?.name || 'સભ્ય';
+      const rawMemberName = report.userProfile?.name || 'સભ્ય';
+      const memberName = formatHTMLTextWithSvgIcons(rawMemberName);
 
       const memberUsername =
         report.userProfile?.username
@@ -441,7 +530,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
         160
       );
 
-      const initial = memberName
+      const initial = (cleanTextForPDFKit(rawMemberName) || 'U')
         .charAt(0)
         .toUpperCase();
 
@@ -534,6 +623,26 @@ const buildReportHTML = (group, monthStr, memberReports) => {
                 ${h.typeDetails?.averageTime || 'N/A'}
               </b>
             `;
+          } else if (h.type === 'timer') {
+            const totalMins = h.typeDetails?.totalMinutes || Math.round((h.typeDetails?.totalSeconds || 0) / 60);
+            const avgMins = Math.round((h.typeDetails?.dailyAverageSeconds || 0) / 60);
+            detailStr = `
+              <div class="habit-main-value">
+                ${totalMins} મિનિટ
+              </div>
+
+              <div class="habit-sub-value">
+                (${h.completedDaysCount}/${activeDays} દિવસ)
+              </div>
+            `;
+
+            avgStr = `
+              રોજ
+              <b>
+                ${avgMins}
+              </b>
+              મિનિટ
+            `;
           } else if (
             h.type === 'yes_no' ||
             h.type === 'boolean'
@@ -580,7 +689,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
 
               <td class="habit-title-cell">
                 <div class="habit-title">
-                  ${h.title}
+                  ${formatHTMLTextWithSvgIcons(h.title)}
                 </div>
               </td>
 
@@ -638,7 +747,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
                 <span class="top-divider">•</span>
 
                 <span>
-                  ${group.name || 'Sankalp Group'}
+                  ${cleanGroupName}
                 </span>
               </div>
 
@@ -2335,9 +2444,7 @@ const generatePDFKitReport = (group, monthStr, memberReports) => {
             )
           : 0;
 
-      const cleanGroupName = (group.name || 'Sankalp Group')
-        .replace(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
-        .trim();
+      const cleanGroupName = cleanTextForPDFKit(group.name || 'Sankalp Group');
 
       const doc = new PDFDocument({
         size: 'A4',
@@ -2423,7 +2530,7 @@ const generatePDFKitReport = (group, monthStr, memberReports) => {
         const rankColor = rank === 1 ? '#b45309' : rank === 2 ? '#475569' : rank === 3 ? '#92400e' : '#334155';
         doc.font(fontBold).fillColor(rankColor).fontSize(10).text(`${rank}`, 42, tableY + 7, { width: 45, align: 'center' });
 
-        const rawName = (m.userProfile?.name || 'Unknown').replace(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim();
+        const rawName = cleanTextForPDFKit(m.userProfile?.name || 'Unknown');
         doc.font(fontBold).fillColor('#0f172a').fontSize(9.5).text(rawName, 95, tableY + 7, { width: 235, align: 'left' });
 
         const score = m.overallStats?.disciplineScore || 0;
@@ -2452,7 +2559,7 @@ const generatePDFKitReport = (group, monthStr, memberReports) => {
 
         const pageNum = idx + 2;
         const totalPages = memberReports.length + 1;
-        const mName = (report.userProfile?.name || 'સભ્ય').replace(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim();
+        const mName = cleanTextForPDFKit(report.userProfile?.name || 'સભ્ય');
         const mUser = report.userProfile?.username ? `@${report.userProfile.username}` : '';
         const activeDays = report.activeDaysInMonth || 30;
         const dScore = report.overallStats?.disciplineScore || 0;
@@ -2499,7 +2606,7 @@ const generatePDFKitReport = (group, monthStr, memberReports) => {
           doc.rect(36, hY, 523, hRowH).fill(isAlt ? '#f8fafc' : '#ffffff');
           doc.moveTo(36, hY + hRowH).lineTo(559, hY + hRowH).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
 
-          const hTitle = (h.title || '').replace(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim();
+          const hTitle = cleanTextForPDFKit(h.title || '');
           doc.font(fontBold).fillColor('#0f172a').fontSize(9).text(hTitle, 46, hY + 10, { width: 170, align: 'left' });
 
           let progStr = `${h.completedDaysCount} / ${activeDays} દિવસ`;
@@ -2514,6 +2621,13 @@ const generatePDFKitReport = (group, monthStr, memberReports) => {
             const mins = h.typeDetails?.totalMinutes || 0;
             progStr = hrs >= 1 ? `${hrs} કલાક` : `${mins} મિનિટ`;
             avgStr = `રોજ ${h.typeDetails?.dailyAverageMinutes || 0} મિ.`;
+          } else if (h.type === 'timer') {
+            const totalMins = h.typeDetails?.totalMinutes || Math.round((h.typeDetails?.totalSeconds || 0) / 60);
+            progStr = `${totalMins} મિનિટ`;
+            avgStr = `રોજ ${Math.round((h.typeDetails?.dailyAverageSeconds || 0) / 60)} મિ.`;
+          } else if (h.type === 'time_of_day') {
+            progStr = `${h.completedDaysCount} / ${activeDays} દિવસ`;
+            avgStr = `સરેરાશ ${h.typeDetails?.averageTime || 'N/A'}`;
           }
 
           doc.font(fontBold).fillColor('#134e4a').fontSize(8.5).text(progStr, 220, hY + 10, { width: 140, align: 'center' });
@@ -2628,5 +2742,974 @@ export const generateGroupMonthlyReportPDF = async (group, monthStr, memberRepor
   console.log('⚠️ [PDF] Falling back to enhanced PDFKit generator...');
   const fallbackBuf = await generatePDFKitReport(group, monthStr, memberReports);
   console.log(`✅ [PDF] PDFKit fallback ready: ${(fallbackBuf.length / 1024).toFixed(1)} KB`);
+  return fallbackBuf;
+};
+
+/**
+ * Dynamically Compile Rich Monthly Report Data for all Group Members
+ */
+export const compileGroupMonthlyReports = async (group, targetMonthStr) => {
+  const [yearStr, monthNumStr] = (targetMonthStr || '').split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthNumStr, 10);
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  const now = new Date();
+  const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month;
+  const maxDayToCount = isCurrentMonth ? now.getDate() : daysInMonth;
+
+  const groupId = (group.id || group._id).toString();
+  const allHabits = await collections.habits.find({ isArchived: false });
+  const groupHabits = allHabits.filter((h) => (h.groupId || '').toString() === groupId);
+  const groupHabitIds = groupHabits.map((h) => (h.id || h._id).toString());
+
+  const allLogs = await collections.habitLogs.find();
+  const allUsers = await collections.users.find();
+  const members = group.members || [];
+
+  const memberReports = [];
+
+  for (const member of members) {
+    const memberUserId = (member.userId || '').toString();
+    const freshUser = allUsers.find((u) => (u.id || u._id)?.toString() === memberUserId);
+
+    const userCreatedAtStr = (freshUser?.createdAt || `${targetMonthStr}-01`).split('T')[0];
+    let effectiveStartDay = 1;
+    if (userCreatedAtStr.startsWith(targetMonthStr)) {
+      const regDay = parseInt(userCreatedAtStr.split('-')[2], 10);
+      effectiveStartDay = Math.max(1, isNaN(regDay) ? 1 : regDay);
+    }
+
+    const activeDaysInMonth = Math.max(1, maxDayToCount - effectiveStartDay + 1);
+
+    // Filter member logs strictly for this group's habits in target month
+    const memberLogs = allLogs.filter((l) => {
+      if ((l.userId || '').toString() !== memberUserId || !l.date || !l.date.startsWith(targetMonthStr)) {
+        return false;
+      }
+      const logDay = parseInt(l.date.split('-')[2], 10);
+      return logDay >= effectiveStartDay && logDay <= maxDayToCount && groupHabitIds.includes((l.habitId || '').toString());
+    });
+
+    // Build per-habit breakdown
+    const habitSummaries = groupHabits.map((habit) => {
+      const habitId = (habit.id || habit._id).toString();
+      const habitLogs = memberLogs.filter((l) => (l.habitId || '').toString() === habitId);
+
+      const completedLogs = habitLogs.filter(
+        (l) =>
+          Boolean(l.isCompleted) ||
+          (typeof l.value === 'number' && l.value > 0) ||
+          (typeof l.value === 'string' && l.value.trim().length > 0)
+      );
+
+      const completedDaysCount = completedLogs.length;
+      const completionPercentage = Math.min(100, Math.round((completedDaysCount / activeDaysInMonth) * 100));
+
+      let typeDetails = {};
+      if (habit.type === 'count') {
+        const totalCount = completedLogs.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
+        typeDetails = {
+          targetPerDay: habit.targetValue || 1,
+          unit: habit.targetUnit || 'units',
+          totalCount,
+          dailyAverage: Math.round((totalCount / activeDaysInMonth) * 10) / 10
+        };
+      } else if (habit.type === 'time_target') {
+        const totalMinutes = completedLogs.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
+        typeDetails = {
+          targetMinutesPerDay: habit.targetValue || 30,
+          totalMinutes,
+          totalHours: Number((totalMinutes / 60).toFixed(1)),
+          dailyAverageMinutes: Math.round(totalMinutes / activeDaysInMonth)
+        };
+      } else if (habit.type === 'timer') {
+        const totalSeconds = completedLogs.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
+        typeDetails = {
+          totalSeconds,
+          totalMinutes: Math.round(totalSeconds / 60),
+          dailyAverageSeconds: Math.round(totalSeconds / activeDaysInMonth)
+        };
+      } else if (habit.type === 'time_of_day') {
+        const timesLogged = completedLogs
+          .map((l) => (typeof l.value === 'string' && l.value.trim() ? l.value.trim() : habit.targetValue))
+          .filter(Boolean);
+
+        let totalMinutesSum = 0;
+        let validMinutesCount = 0;
+        timesLogged.forEach((t) => {
+          const mins = timeStringToMinutes(t);
+          if (mins !== null) {
+            totalMinutesSum += mins;
+            validMinutesCount++;
+          }
+        });
+
+        const avgMinutes = validMinutesCount > 0 ? Math.round(totalMinutesSum / validMinutesCount) : null;
+        const averageTime = minutesToTimeString(avgMinutes);
+
+        typeDetails = {
+          targetTime: habit.targetValue || '05:00 AM',
+          completedDays: completedDaysCount,
+          totalDays: activeDaysInMonth,
+          averageTime: averageTime !== 'N/A' ? averageTime : (completedLogs[0]?.value || habit.targetValue || 'N/A')
+        };
+      } else if (habit.type === 'yes_no') {
+        const yesCount = habitLogs.filter(
+          (l) => l.isCompleted || l.value === 1 || l.value === '1' || l.value === true
+        ).length;
+        typeDetails = {
+          yesDays: yesCount,
+          noDays: Math.max(0, activeDaysInMonth - yesCount),
+          totalDays: activeDaysInMonth,
+          yesPercentage: Math.min(100, Math.round((yesCount / activeDaysInMonth) * 100))
+        };
+      } else {
+        typeDetails = {
+          completedDays: completedDaysCount,
+          totalDays: activeDaysInMonth,
+          percentage: completionPercentage
+        };
+      }
+
+      return {
+        habitId,
+        title: habit.title,
+        type: habit.type,
+        targetUnit: habit.targetUnit || '',
+        targetValue: habit.targetValue || '',
+        completedDaysCount,
+        activeDaysInMonth,
+        completionPercentage,
+        typeDetails
+      };
+    });
+
+    // Compute Discipline Score (days with 100% group habits completed)
+    const logsByDate = {};
+    memberLogs.forEach((l) => {
+      const isDone =
+        Boolean(l.isCompleted) ||
+        (typeof l.value === 'number' && l.value > 0) ||
+        (typeof l.value === 'string' && l.value.trim().length > 0);
+
+      if (isDone && l.date) {
+        if (!logsByDate[l.date]) logsByDate[l.date] = new Set();
+        logsByDate[l.date].add((l.habitId || '').toString());
+      }
+    });
+
+    let perfectDays = 0;
+    if (groupHabitIds.length > 0) {
+      for (const dateStr in logsByDate) {
+        if (logsByDate[dateStr].size >= groupHabitIds.length) {
+          perfectDays += 1;
+        }
+      }
+    }
+
+    const overallCompletionRate =
+      habitSummaries.length > 0
+        ? Math.round(habitSummaries.reduce((sum, h) => sum + h.completionPercentage, 0) / habitSummaries.length)
+        : 0;
+
+    // Check if finalized/saved report exists in monthly_reports collection
+    const allMonthlyReports = await collections.monthlyReports.find();
+    const savedMemberReport = allMonthlyReports.find(
+      (r) => (r.groupId || '').toString() === groupId && (r.userId || '').toString() === memberUserId && r.month === targetMonthStr
+    );
+
+    let disciplineScore = perfectDays;
+    let overallRate = overallCompletionRate;
+    let activeDays = activeDaysInMonth;
+    let finalHabitSummaries = habitSummaries;
+
+    if (memberLogs.length === 0 && savedMemberReport && savedMemberReport.habitSummaries?.length > 0) {
+      disciplineScore = savedMemberReport.overallStats?.disciplineScore ?? savedMemberReport.overallStats?.perfectDays ?? 0;
+      overallRate = savedMemberReport.overallStats?.overallCompletionRate ?? 0;
+      activeDays = savedMemberReport.activeDaysInMonth || activeDaysInMonth;
+      finalHabitSummaries = savedMemberReport.habitSummaries;
+    }
+
+    memberReports.push({
+      userId: memberUserId,
+      userProfile: {
+        id: memberUserId,
+        name: freshUser?.name || member.name || 'સભ્ય',
+        username: freshUser?.username || member.username || '',
+        avatar: freshUser?.avatar || member.avatar || ''
+      },
+      groupId,
+      month: targetMonthStr,
+      activeDaysInMonth: activeDays,
+      overallStats: {
+        totalHabits: groupHabits.length,
+        perfectDays: disciplineScore,
+        disciplineScore,
+        overallCompletionRate: overallRate
+      },
+      habitSummaries: finalHabitSummaries
+    });
+  }
+
+  // Sort by disciplineScore descending, then completion rate
+  memberReports.sort(
+    (a, b) =>
+      b.overallStats.disciplineScore - a.overallStats.disciplineScore ||
+      b.overallStats.overallCompletionRate - a.overallStats.overallCompletionRate
+  );
+
+  return memberReports;
+};
+
+/**
+ * Detect if a habit is a reduction / negative habit (e.g. mobile time waste / screen time)
+ * For these habits, LOWER value / duration means BETTER discipline (0 mins is top rank #1)!
+ */
+export const isReductionHabit = (habit) => {
+  const title = (habit?.title || '').toLowerCase();
+  const desc = (habit?.description || '').toLowerCase();
+  return (
+    title.includes('મોબાઈલ') ||
+    title.includes('મોબાઇલ') ||
+    title.includes('બગાડ') ||
+    title.includes('mobile') ||
+    title.includes('screen') ||
+    title.includes('bagad') ||
+    title.includes('waste') ||
+    title.includes('વ્યર્થ') ||
+    title.includes('phone') ||
+    desc.includes('બગાડ') ||
+    desc.includes('waste')
+  );
+};
+
+/**
+ * Dynamically Compile Task-Wise Leaderboard Data for every group habit
+ * Sorts highest total value first for Count/Time (Mantra, Dandvat, Katha)
+ * EXCEPTIONAL CASE: Sorts lowest time first for Mobile Screen Time / Waste (Less time = #1 Rank)
+ */
+export const compileGroupTaskLeaderboards = async (group, targetMonthStr) => {
+  const [yearStr, monthNumStr] = (targetMonthStr || '').split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthNumStr, 10);
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  const now = new Date();
+  const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month;
+  const maxDayToCount = isCurrentMonth ? now.getDate() : daysInMonth;
+
+  const groupId = (group.id || group._id).toString();
+  const allHabits = await collections.habits.find({ isArchived: false });
+  const groupHabits = allHabits.filter((h) => (h.groupId || '').toString() === groupId);
+
+  const allLogs = await collections.habitLogs.find();
+  const allUsers = await collections.users.find();
+  const members = group.members || [];
+
+  const taskLeaderboards = [];
+
+  for (const habit of groupHabits) {
+    const habitId = (habit.id || habit._id).toString();
+    const isReduction = isReductionHabit(habit);
+    const memberRankings = [];
+
+    for (const member of members) {
+      const memberUserId = (member.userId || '').toString();
+      const freshUser = allUsers.find((u) => (u.id || u._id)?.toString() === memberUserId);
+
+      const userCreatedAtStr = (freshUser?.createdAt || `${targetMonthStr}-01`).split('T')[0];
+      let effectiveStartDay = 1;
+      if (userCreatedAtStr.startsWith(targetMonthStr)) {
+        const regDay = parseInt(userCreatedAtStr.split('-')[2], 10);
+        effectiveStartDay = Math.max(1, isNaN(regDay) ? 1 : regDay);
+      }
+
+      const activeDaysInMonth = Math.max(1, maxDayToCount - effectiveStartDay + 1);
+
+      // Filter logs for this specific member and habit in target month
+      const memberLogs = allLogs.filter((l) => {
+        if ((l.userId || '').toString() !== memberUserId || !l.date || !l.date.startsWith(targetMonthStr)) {
+          return false;
+        }
+        const logDay = parseInt(l.date.split('-')[2], 10);
+        return logDay >= effectiveStartDay && logDay <= maxDayToCount && (l.habitId || '').toString() === habitId;
+      });
+
+      const completedLogs = memberLogs.filter(
+        (l) =>
+          Boolean(l.isCompleted) ||
+          (typeof l.value === 'number' && l.value > 0) ||
+          (typeof l.value === 'string' && l.value.trim().length > 0)
+      );
+
+      const completedDaysCount = completedLogs.length;
+      const completionPercentage = Math.min(100, Math.round((completedDaysCount / activeDaysInMonth) * 100));
+
+      let totalMetricValue = 0;
+      let displayValue = '';
+      let displayAverage = '';
+      let avgMinutes = null;
+
+      if (habit.type === 'count') {
+        const totalCount = completedLogs.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
+        totalMetricValue = totalCount;
+        const dailyAvg = Math.round((totalCount / activeDaysInMonth) * 10) / 10;
+        displayValue = `${totalCount.toLocaleString()} ${habit.targetUnit || ''}`.trim();
+        displayAverage = `રોજ ${dailyAvg} ${habit.targetUnit || ''}`.trim();
+      } else if (habit.type === 'time_target') {
+        const totalMinutes = completedLogs.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
+        totalMetricValue = totalMinutes;
+        const hrs = (totalMinutes / 60).toFixed(1);
+        const dailyAvgMinutes = Math.round(totalMinutes / activeDaysInMonth);
+        displayValue = Number(hrs) >= 1 ? `${hrs} કલાક (${totalMinutes} મિ.)` : `${totalMinutes} મિનિટ`;
+        displayAverage = `રોજ ${dailyAvgMinutes} મિનિટ`;
+      } else if (habit.type === 'timer') {
+        const totalSeconds = completedLogs.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
+        const totalMinutes = Math.round(totalSeconds / 60);
+        totalMetricValue = totalMinutes;
+        const dailyAvgMins = Math.round(totalMinutes / activeDaysInMonth);
+        displayValue = `${totalMinutes} મિનિટ`;
+        displayAverage = `રોજ ${dailyAvgMins} મિનિટ`;
+      } else if (habit.type === 'time_of_day') {
+        const timesLogged = completedLogs
+          .map((l) => (typeof l.value === 'string' && l.value.trim() ? l.value.trim() : habit.targetValue))
+          .filter(Boolean);
+
+        let totalMinutesSum = 0;
+        let validCount = 0;
+        timesLogged.forEach((t) => {
+          const mins = timeStringToMinutes(t);
+          if (mins !== null) {
+            totalMinutesSum += mins;
+            validCount++;
+          }
+        });
+        avgMinutes = validCount > 0 ? Math.round(totalMinutesSum / validCount) : 9999;
+        const averageTime = minutesToTimeString(validCount > 0 ? avgMinutes : null);
+        totalMetricValue = completedDaysCount;
+        displayValue = `${completedDaysCount} / ${activeDaysInMonth} દિવસ`;
+        displayAverage = `સરેરાશ ${averageTime}`;
+      } else if (habit.type === 'yes_no') {
+        const yesCount = memberLogs.filter(
+          (l) => l.isCompleted || l.value === 1 || l.value === '1' || l.value === true
+        ).length;
+        totalMetricValue = yesCount;
+        displayValue = `${yesCount} / ${activeDaysInMonth} દિવસ`;
+        displayAverage = `${Math.min(100, Math.round((yesCount / activeDaysInMonth) * 100))}% હાજરી`;
+      } else {
+        // boolean
+        totalMetricValue = completedDaysCount;
+        displayValue = `${completedDaysCount} / ${activeDaysInMonth} દિવસ`;
+        displayAverage = `${completionPercentage}% હાજરી`;
+      }
+
+      if (isReduction) {
+        if (totalMetricValue === 0) {
+          displayValue = `૦ મિનિટ (સંપૂર્ણ સંયમ 🌟)`;
+        }
+      }
+
+      memberRankings.push({
+        userId: memberUserId,
+        name: freshUser?.name || member.name || 'સભ્ય',
+        username: freshUser?.username || member.username || '',
+        avatar: freshUser?.avatar || member.avatar || '',
+        role: member.role || 'member',
+        completedDaysCount,
+        activeDaysInMonth,
+        completionPercentage,
+        totalMetricValue,
+        displayValue,
+        displayAverage,
+        avgMinutes
+      });
+    }
+
+    // Sort rankings:
+    // EXCEPTIONAL CASE: For reduction habits (like Mobile screen time waste), LOWER time is #1 Rank!
+    if (isReduction) {
+      memberRankings.sort((a, b) => {
+        if (a.totalMetricValue !== b.totalMetricValue) {
+          return a.totalMetricValue - b.totalMetricValue; // Ascending: less waste = top rank!
+        }
+        return b.completedDaysCount - a.completedDaysCount;
+      });
+    } else if (habit.type === 'count' || habit.type === 'time_target' || habit.type === 'timer') {
+      // Highest total value is #1 Rank (Mantra Jap, Dandvat, Katha, etc.)
+      memberRankings.sort((a, b) => {
+        if (b.totalMetricValue !== a.totalMetricValue) {
+          return b.totalMetricValue - a.totalMetricValue; // Descending
+        }
+        return b.completedDaysCount - a.completedDaysCount || b.completionPercentage - a.completionPercentage;
+      });
+    } else if (habit.type === 'time_of_day') {
+      // Most days present, then earlier wake-up/activity time
+      memberRankings.sort((a, b) => {
+        if (b.completedDaysCount !== a.completedDaysCount) {
+          return b.completedDaysCount - a.completedDaysCount;
+        }
+        return (a.avgMinutes || 9999) - (b.avgMinutes || 9999);
+      });
+    } else {
+      // Most completed days, then completion rate
+      memberRankings.sort((a, b) => {
+        if (b.completedDaysCount !== a.completedDaysCount) {
+          return b.completedDaysCount - a.completedDaysCount;
+        }
+        return b.completionPercentage - a.completionPercentage;
+      });
+    }
+
+    taskLeaderboards.push({
+      habitId,
+      title: habit.title,
+      description: habit.description || '',
+      type: habit.type,
+      targetValue: habit.targetValue || '',
+      targetUnit: habit.targetUnit || '',
+      isReduction,
+      totalMembers: memberRankings.length,
+      topPerformer: memberRankings[0] || null,
+      rankings: memberRankings
+    });
+  }
+
+  return taskLeaderboards;
+};
+
+/**
+ * Build Multi-Page HTML Template for Task-Wise Leaderboard Report
+ * 1 Page Dedicated for each Group Task with Champion Card and Full Ranking Table
+ */
+export const buildTaskLeaderboardHTML = (group, monthStr, taskLeaderboards) => {
+  const [yearStr, monthNumStr] = (monthStr || '').split('-');
+  const monthNum = parseInt(monthNumStr, 10);
+  const monthName = MONTH_NAMES[monthNum - 1] || monthStr;
+
+  const totalTasks = taskLeaderboards.length;
+  const cleanGroupName = formatHTMLTextWithSvgIcons(group.name || 'Sankalp Group');
+
+  const taskPagesHTML = taskLeaderboards.map((task, pageIdx) => {
+    const pageNum = pageIdx + 1;
+    const topPerformer = task.topPerformer;
+    const isReduction = task.isReduction;
+
+    const rawTaskTitle = task.title || 'નિયમ';
+    const cleanTaskTitle = formatHTMLTextWithSvgIcons(rawTaskTitle);
+
+    // Top Performer Avatar
+    const topAvatarUrl = optimizeAvatarUrl(topPerformer?.avatar || '', 120);
+    const topInitial = (cleanTextForPDFKit(topPerformer?.name || 'U') || 'U').charAt(0).toUpperCase();
+    const topAvatarHTML = topAvatarUrl
+      ? `<div class="avatar-circle-top"><img src="${topAvatarUrl}" class="avatar-img" onerror="this.outerHTML='<span class=\\'avatar-letter-top\\'>${topInitial}</span>'" /></div>`
+      : `<div class="avatar-circle-top"><span class="avatar-letter-top">${topInitial}</span></div>`;
+
+    // Leaderboard Rows
+    const tableRowsHTML = task.rankings.map((m, idx) => {
+      const rank = idx + 1;
+      const medal = rank === 1 ? ICONS.goldMedal : rank === 2 ? ICONS.silverMedal : rank === 3 ? ICONS.bronzeMedal : `${rank}`;
+      const medalClass = rank === 1 ? 'rank-gold' : rank === 2 ? 'rank-silver' : rank === 3 ? 'rank-bronze' : 'rank-normal';
+
+      const avatarUrl = optimizeAvatarUrl(m.avatar || '', 60);
+      const initial = (cleanTextForPDFKit(m.name || 'U') || 'U').charAt(0).toUpperCase();
+      const avatarHTML = avatarUrl
+        ? `<div class="avatar-circle-sm"><img src="${avatarUrl}" class="avatar-img" onerror="this.outerHTML='<span class=\\'avatar-letter-sm\\'>${initial}</span>'" /></div>`
+        : `<div class="avatar-circle-sm"><span class="avatar-letter-sm">${initial}</span></div>`;
+
+      const comp = m.completionPercentage || 0;
+      const compClass = comp >= 80 ? 'completion-high' : comp >= 50 ? 'completion-medium' : 'completion-low';
+
+      return `
+        <tr class="leaderboard-row ${idx % 2 === 1 ? 'row-alt' : ''}">
+          <td class="leaderboard-rank ${medalClass}">
+            ${medal}
+          </td>
+          <td class="leaderboard-name">
+            <div class="member-name-wrap">
+              ${avatarHTML}
+              <div class="member-name-text">
+                <b>${formatHTMLTextWithSvgIcons(m.name)}</b>
+                ${m.username ? `<span style="font-size:8.5px;color:#64748b;display:block">@${m.username}</span>` : ''}
+              </div>
+            </div>
+          </td>
+          <td class="leaderboard-metric">
+            <span class="metric-highlight">${formatHTMLTextWithSvgIcons(m.displayValue || '-')}</span>
+          </td>
+          <td class="leaderboard-avg">
+            <span class="avg-text">${formatHTMLTextWithSvgIcons(m.displayAverage || '-')}</span>
+          </td>
+          <td class="leaderboard-rate">
+            <span class="completion-badge ${compClass}">
+              ${comp}%
+            </span>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    return `
+      <div class="page task-page">
+        <div class="page-body">
+          <!-- TOP BAR -->
+          <div class="page-top-bar">
+            <div class="top-brand">
+              <span class="invocation">॥ જય સ્વામિનારાયણ ॥</span>
+              <span class="top-divider">•</span>
+              <span>${cleanGroupName}</span>
+            </div>
+            <div class="page-number">
+              નિયમ ${pageNum} / ${totalTasks} (પેજ ${pageNum})
+            </div>
+          </div>
+
+          <!-- TASK HEADER BANNER -->
+          <div class="task-header-card ${isReduction ? 'reduction-card' : ''}">
+            <div class="task-header-left">
+              <div class="task-icon-box">
+                ${isReduction ? ICONS.shieldGold : ICONS.sparkleGold}
+              </div>
+              <div>
+                <div class="task-title-row">
+                  <h2 class="task-title">${cleanTaskTitle}</h2>
+                  ${isReduction ? `<span class="reduction-badge">${ICONS.star} ઓછો સમય = પ્રથમ સ્થાન (સંયમ નિયમ)</span>` : '<span class="task-type-badge">માસિક નિયમ લીડરબોર્ડ</span>'}
+                </div>
+                <div class="task-meta">
+                  <span>${task.totalMembers} સભ્યો સહભાગી</span>
+                  <span>•</span>
+                  <span>${task.type === 'count' ? `લક્ષ્ય: ${task.targetValue} ${task.targetUnit}` : task.type === 'time_target' ? `લક્ષ્ય: ${task.targetValue} મિનિટ/દિવસ` : 'નિયમ પાલન'}</span>
+                  <span>•</span>
+                  <span>${monthName} ${yearStr}</span>
+                </div>
+              </div>
+            </div>
+            <div class="task-month-pill">
+              ${ICONS.calendar} ${monthName} ${yearStr}
+            </div>
+          </div>
+
+          <!-- TOP CHAMPION CARD -->
+          ${topPerformer ? `
+            <div class="champion-card">
+              <div class="champion-left">
+                ${topAvatarHTML}
+                <div class="champion-info">
+                  <div class="champion-label">
+                    ${ICONS.trophy} <span>પ્રથમ ક્રમાંક • ટોપ પરફોર્મર</span>
+                  </div>
+                  <div class="champion-name">
+                    ${formatHTMLTextWithSvgIcons(topPerformer.name)}
+                  </div>
+                  <div class="champion-sub">
+                    ${topPerformer.username ? `@${topPerformer.username} • ` : ''} ${topPerformer.completedDaysCount} દિવસ સક્રિય
+                  </div>
+                </div>
+              </div>
+              <div class="champion-score">
+                <div class="champion-score-label">${isReduction ? 'સૌથી ઓછો બગાડ' : 'કુલ સ્કોર'}</div>
+                <div class="champion-score-value">${formatHTMLTextWithSvgIcons(topPerformer.displayValue)}</div>
+                <div class="champion-score-sub">${formatHTMLTextWithSvgIcons(topPerformer.displayAverage)}</div>
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- LEADERBOARD TABLE -->
+          <div class="table-container" style="margin-top: 10px;">
+            <table class="report-table">
+              <thead>
+                <tr class="table-head">
+                  <th style="width: 12%;">ક્રમ</th>
+                  <th style="width: 38%;">સભ્યનું નામ</th>
+                  <th style="width: 25%;">${isReduction ? 'સમય બગાડ' : 'કુલ પ્રગતિ'}</th>
+                  <th style="width: 15%;">રોજિંદી સરેરાશ</th>
+                  <th style="width: 10%;">હાજરી %</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${tableRowsHTML}
+              </tbody>
+            </table>
+          </div>
+
+          <!-- INSIGHT / TAKEAWAY -->
+          <div class="member-insight" style="margin-top: 10px;">
+            <div class="insight-icon">${ICONS.sparkle}</div>
+            <div class="insight-content">
+              <div class="insight-title">${cleanTaskTitle} - માસિક પ્રેરણા</div>
+              <div class="insight-text">
+                ${isReduction
+                  ? `આ નિયમમાં સૌથી ઓછો સમય આપનાર સભ્ય <strong>${formatHTMLTextWithSvgIcons(topPerformer?.name || 'પ્રથમ ક્રમાંક')}</strong> છે. મોબાઈલના વ્યર્થ વપરાશ પર સંયમ રાખી સત્સંગ અને ભક્તિમાં સમય વાપરવો એ જ સાચો વિવેક છે.`
+                  : `આ નિયમમાં સૌથી વધુ પુરુષાર્થ કરી <strong>${formatHTMLTextWithSvgIcons(topPerformer?.name || 'ટોપ પરફોર્મર')}</strong> એ <strong>${formatHTMLTextWithSvgIcons(topPerformer?.displayValue || '')}</strong> સાથે પ્રથમ સ્થાન પ્રાપ્ત કર્યું છે.`
+                }
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="page-bottom-bar">
+          <div class="footer-quote">
+            ${ICONS.star}
+            <i>"નિયમ, ધર્મ અને સંકલ્પનું દ્રઢ પાલન એ જ ભક્તિની સાચી શોભા છે."</i>
+          </div>
+          <div class="footer-right">
+            જય સ્વામિનારાયણ ${ICONS.prayingHands}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+<!DOCTYPE html>
+<html lang="gu">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${group.name || 'Sankalp Group'} Task Leaderboard - ${monthName} ${yearStr}</title>
+  <style>
+    ${getEmbeddedFontsCSS()}
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; min-height: 100%; }
+    body {
+      font-family: 'Noto Sans Gujarati', 'Plus Jakarta Sans', sans-serif;
+      background: #e2e8f0;
+      color: #0f172a;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+      text-rendering: optimizeLegibility;
+    }
+    @page { size: A4 portrait; margin: 0; }
+
+    .page {
+      width: 210mm;
+      height: 297mm;
+      max-height: 297mm;
+      padding: 9mm 12mm 7mm 12mm;
+      background: #ffffff;
+      position: relative;
+      page-break-after: always;
+      page-break-inside: avoid;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      margin: 0 auto;
+      overflow: hidden;
+    }
+    .page:last-child { page-break-after: avoid; }
+    .page-body { width: 100%; flex: 1; min-height: 0; }
+
+    .page-top-bar {
+      width: 100%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0 2px 6px 2px;
+      border-bottom: 1.8px solid #0f766e;
+      margin-bottom: 8px;
+    }
+    .top-brand { display: flex; align-items: center; gap: 7px; font-size: 11.5px; font-weight: 800; color: #134e4a; }
+    .invocation { color: #0f766e; }
+    .top-divider { color: #94a3b8; }
+    .page-number { font-size: 10.5px; font-weight: 800; color: #64748b; }
+
+    /* TASK HEADER CARD */
+    .task-header-card {
+      background: linear-gradient(135deg, #065f46 0%, #047857 50%, #065f46 100%);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: #ffffff;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 9px;
+      border: 1px solid rgba(110, 231, 183, 0.3);
+      box-shadow: 0 3px 8px rgba(6, 95, 70, 0.15);
+    }
+    .reduction-card {
+      background: linear-gradient(135deg, #854d0e 0%, #a16207 50%, #713f12 100%);
+      border-color: rgba(253, 224, 71, 0.4);
+    }
+    .task-header-left { display: flex; align-items: center; gap: 11px; }
+    .task-icon-box { background: rgba(255, 255, 255, 0.15); border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255, 255, 255, 0.25); }
+    .task-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .task-title { font-size: 16px; font-weight: 900; color: #ffffff; line-height: 1.2; }
+    .task-type-badge { font-size: 8.5px; font-weight: 800; background: rgba(255, 255, 255, 0.2); padding: 2px 7px; border-radius: 999px; }
+    .reduction-badge { font-size: 8.5px; font-weight: 900; background: #fef08a; color: #713f12; padding: 2px 8px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; }
+    .task-meta { font-size: 9px; color: #ccfbf1; font-weight: 700; margin-top: 3px; display: flex; gap: 6px; }
+    .task-month-pill { font-size: 10px; font-weight: 800; background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.2); padding: 4px 10px; border-radius: 999px; color: #f0fdf4; white-space: nowrap; }
+
+    /* CHAMPION CARD */
+    .champion-card {
+      background: linear-gradient(135deg, #fefce8 0%, #fffbeb 100%);
+      border: 1.5px solid #fde047;
+      border-radius: 10px;
+      padding: 10px 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 9px;
+      box-shadow: 0 2px 6px rgba(234, 179, 8, 0.1);
+    }
+    .champion-left { display: flex; align-items: center; gap: 11px; }
+    .avatar-circle-top {
+      width: 48px; height: 48px; min-width: 48px; border-radius: 50%; overflow: hidden;
+      border: 2px solid #eab308; display: flex; align-items: center; justify-content: center;
+      background: #f59e0b; flex-shrink: 0; box-shadow: 0 2px 6px rgba(234, 179, 8, 0.3);
+    }
+    .avatar-letter-top { color: #ffffff; font-weight: 900; font-size: 18px; }
+    .champion-label { font-size: 9px; font-weight: 900; text-transform: uppercase; color: #b45309; display: flex; align-items: center; gap: 4px; }
+    .champion-name { font-size: 15px; font-weight: 900; color: #78350f; line-height: 1.25; margin-top: 1px; }
+    .champion-sub { font-size: 8.5px; font-weight: 700; color: #92400e; margin-top: 1px; }
+    .champion-score { text-align: right; }
+    .champion-score-label { font-size: 8px; font-weight: 800; text-transform: uppercase; color: #92400e; }
+    .champion-score-value { font-size: 16px; font-weight: 900; color: #b45309; }
+    .champion-score-sub { font-size: 8.5px; font-weight: 700; color: #78350f; }
+
+    /* TABLE */
+    .table-container { width: 100%; border: 1px solid #cbd5e1; border-radius: 9px; overflow: hidden; background: #ffffff; }
+    .report-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    .table-head { background: linear-gradient(135deg, #0f766e, #115e59); color: #ffffff; font-size: 10px; font-weight: 900; }
+    .table-head th { padding: 7px 8px; text-align: center; vertical-align: middle; border-right: 1px solid rgba(255, 255, 255, 0.15); height: 30px; }
+    .table-head th:last-child { border-right: none; }
+    .leaderboard-row td { height: 32px; padding: 4px 7px; border-bottom: 1px solid #f1f5f9; text-align: center; vertical-align: middle; }
+    .leaderboard-row:last-child td { border-bottom: none; }
+    .row-alt { background: #f8fafc; }
+    .leaderboard-rank { font-size: 10.5px; font-weight: 900; }
+    .rank-gold { color: #b45309; font-size: 11.5px; }
+    .rank-silver { color: #475569; font-size: 11.5px; }
+    .rank-bronze { color: #92400e; font-size: 11.5px; }
+    .rank-normal { color: #334155; }
+    .member-name-wrap { display: flex; align-items: center; gap: 7px; text-align: left; }
+    .member-name-text { font-size: 10px; font-weight: 800; color: #0f172a; line-height: 1.2; }
+    .metric-highlight { font-size: 10.5px; font-weight: 900; color: #0f766e; }
+    .avg-text { font-size: 9px; font-weight: 700; color: #475569; }
+
+    /* BADGES & AVATARS */
+    .completion-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 42px; padding: 2px 6px; border-radius: 999px; font-size: 9px; font-weight: 900; border: 1px solid; }
+    .completion-high { color: #065f46; background: #d1fae5; border-color: #86efac; }
+    .completion-medium { color: #92400e; background: #fef3c7; border-color: #fcd34d; }
+    .completion-low { color: #991b1b; background: #fee2e2; border-color: #fca5a5; }
+
+    .avatar-circle-sm { width: 24px; height: 24px; min-width: 24px; border-radius: 50%; overflow: hidden; border: 1.5px solid #0f766e; display: inline-flex; align-items: center; justify-content: center; background: #0f766e; flex-shrink: 0; }
+    .avatar-img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .avatar-letter-sm { color: #ffffff; font-weight: 900; font-size: 9.5px; }
+
+    /* INSIGHT */
+    .member-insight { background: #f0fdfa; border: 1px solid #99f6e4; border-radius: 8px; padding: 7px 11px; display: flex; align-items: flex-start; gap: 9px; }
+    .insight-icon { margin-top: 1px; }
+    .insight-title { font-size: 10px; font-weight: 900; color: #0f766e; }
+    .insight-text { font-size: 8.5px; color: #334155; font-weight: 600; line-height: 1.35; margin-top: 2px; }
+    .insight-text strong { color: #115e59; font-weight: 900; }
+
+    /* FOOTER */
+    .page-bottom-bar { width: 100%; display: flex; justify-content: space-between; align-items: center; gap: 15px; padding-top: 6px; border-top: 1px solid #cbd5e1; margin-top: 6px; }
+    .footer-quote { font-size: 8px; color: #475569; font-weight: 700; }
+    .footer-right { font-size: 8px; color: #0f766e; font-weight: 900; white-space: nowrap; }
+
+    @media print { html, body { background: #ffffff; } .page { margin: 0; box-shadow: none; } }
+  </style>
+</head>
+<body>
+  ${taskPagesHTML}
+</body>
+</html>
+  `;
+};
+
+/**
+ * Fallback Task-Wise PDF Generator using PDFKit
+ */
+export const generatePDFKitTaskLeaderboardReport = (group, monthStr, taskLeaderboards) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const [yearStr, monthNumStr] = (monthStr || '').split('-');
+      const monthNum = parseInt(monthNumStr, 10);
+      const monthName = MONTH_NAMES[monthNum - 1] || monthStr;
+
+      const cleanGroupName = cleanTextForPDFKit(group.name || 'Sankalp Group');
+
+      const doc = new PDFDocument({
+        size: 'A4',
+        margin: 36,
+        bufferPages: true,
+        info: {
+          Title: `${cleanGroupName} Task Leaderboard - ${monthStr}`,
+          Author: 'Sankalp Habit Tracker'
+        }
+      });
+
+      const fontRegPath = findFontPath('NotoSansGujarati-Regular.ttf');
+      const fontBoldPath = findFontPath('NotoSansGujarati-Bold.ttf');
+
+      let hasGujaratiFont = false;
+      if (fontRegPath && fontBoldPath) {
+        doc.registerFont('Gujarati', fontRegPath);
+        doc.registerFont('Gujarati-Bold', fontBoldPath);
+        hasGujaratiFont = true;
+      }
+
+      const fontRegular = hasGujaratiFont ? 'Gujarati' : 'Helvetica';
+      const fontBold = hasGujaratiFont ? 'Gujarati-Bold' : 'Helvetica-Bold';
+
+      const buffers = [];
+      doc.on('data', (chunk) => buffers.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+      doc.on('error', (err) => reject(err));
+
+      const W = doc.page.width;
+      const H = doc.page.height;
+
+      taskLeaderboards.forEach((task, pageIdx) => {
+        if (pageIdx > 0) doc.addPage();
+        doc.rect(0, 0, W, H).fill('#ffffff');
+
+        const pageNum = pageIdx + 1;
+        const totalTasks = taskLeaderboards.length;
+        const taskTitle = cleanTextForPDFKit(task.title || 'નિયમ');
+        const top = task.topPerformer;
+
+        // Top Bar
+        doc.font(fontBold).fillColor('#0f766e').fontSize(11).text('॥ જય સ્વામિનારાયણ ॥', 36, 30);
+        doc.font(fontRegular).fillColor('#64748b').fontSize(10).text(`${cleanGroupName} • નિયમ ${pageNum}/${totalTasks}`, 200, 30, { align: 'right', width: 350 });
+        doc.moveTo(36, 46).lineTo(559, 46).strokeColor('#0f766e').lineWidth(1.5).stroke();
+
+        // Task Header
+        const headerBg = task.isReduction ? '#854d0e' : '#0f766e';
+        doc.roundedRect(36, 56, 523, 50, 8).fill(headerBg);
+        doc.font(fontBold).fillColor('#ffffff').fontSize(15).text(taskTitle, 50, 68);
+        doc.font(fontRegular).fillColor('#ccfbf1').fontSize(8.5).text(
+          `${task.isReduction ? 'ઓછો સમય = પ્રથમ સ્થાન • ' : ''}${task.totalMembers} સભ્યો • ${monthName} ${yearStr}`,
+          50,
+          90
+        );
+
+        // Champion Card
+        let startY = 115;
+        if (top) {
+          doc.roundedRect(36, startY, 523, 50, 6).fillAndStroke('#fefce8', '#fde047');
+          doc.font(fontBold).fillColor('#b45309').fontSize(8.5).text('પ્રથમ ક્રમાંક • ટોપ પરફોર્મર', 50, startY + 8);
+          doc.font(fontBold).fillColor('#78350f').fontSize(13).text(cleanTextForPDFKit(top.name), 50, startY + 22);
+          doc.font(fontBold).fillColor('#b45309').fontSize(14).text(cleanTextForPDFKit(top.displayValue), 340, startY + 12, { align: 'right', width: 205 });
+          doc.font(fontRegular).fillColor('#92400e').fontSize(8.5).text(cleanTextForPDFKit(top.displayAverage), 340, startY + 30, { align: 'right', width: 205 });
+          startY += 58;
+        }
+
+        // Table Header
+        let tY = startY;
+        doc.roundedRect(36, tY, 523, 22, 4).fill('#0f766e');
+        doc.font(fontBold).fillColor('#ffffff').fontSize(9);
+        doc.text('ક્રમ', 42, tY + 6, { width: 35, align: 'center' });
+        doc.text('સભ્યનું નામ', 85, tY + 6, { width: 190, align: 'left' });
+        doc.text(task.isReduction ? 'સમય બગાડ' : 'કુલ પ્રગતિ', 280, tY + 6, { width: 130, align: 'center' });
+        doc.text('સરેરાશ', 415, tY + 6, { width: 75, align: 'center' });
+        doc.text('હાજરી %', 495, tY + 6, { width: 60, align: 'center' });
+
+        tY += 22;
+        const rowH = 26;
+        task.rankings.forEach((m, idx) => {
+          const rank = idx + 1;
+          const bg = idx % 2 === 1 ? '#f8fafc' : '#ffffff';
+          doc.rect(36, tY, 523, rowH).fill(bg);
+          doc.moveTo(36, tY + rowH).lineTo(559, tY + rowH).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
+
+          const rankColor = rank === 1 ? '#b45309' : rank === 2 ? '#475569' : rank === 3 ? '#92400e' : '#334155';
+          doc.font(fontBold).fillColor(rankColor).fontSize(9.5).text(`${rank}`, 42, tY + 7, { width: 35, align: 'center' });
+
+          const rawName = cleanTextForPDFKit(m.name || 'Unknown');
+          doc.font(fontBold).fillColor('#0f172a').fontSize(9).text(rawName, 85, tY + 7, { width: 190, align: 'left' });
+
+          doc.font(fontBold).fillColor('#0f766e').fontSize(8.5).text(cleanTextForPDFKit(m.displayValue || '-'), 280, tY + 7, { width: 130, align: 'center' });
+          doc.font(fontRegular).fillColor('#475569').fontSize(8).text(cleanTextForPDFKit(m.displayAverage || '-'), 415, tY + 7, { width: 75, align: 'center' });
+
+          const comp = m.completionPercentage || 0;
+          doc.font(fontBold).fillColor(comp >= 80 ? '#065f46' : comp >= 50 ? '#92400e' : '#991b1b').fontSize(8.5).text(`${comp}%`, 495, tY + 7, { width: 60, align: 'center' });
+
+          tY += rowH;
+        });
+
+        // Page Footer
+        doc.moveTo(36, H - 32).lineTo(559, H - 32).strokeColor('#cbd5e1').lineWidth(0.7).stroke();
+        doc.font(fontRegular).fillColor('#475569').fontSize(8).text('"નિયમ, ધર્મ અને સંકલ્પનું દ્રઢ પાલન એ જ ભક્તિની સાચી શોભા છે."', 36, H - 24);
+        doc.font(fontBold).fillColor('#0f766e').fontSize(8.5).text('જય સ્વામિનારાયણ', 200, H - 24, { align: 'right', width: 359 });
+      });
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+};
+
+/**
+ * Main export: Generate Task-Wise Leaderboard PDF Book
+ */
+export const generateGroupTaskLeaderboardPDF = async (group, monthStr, taskLeaderboards) => {
+  let browser = null;
+
+  try {
+    browser = await launchBrowser();
+  } catch (e) {
+    console.warn('⚠️ [PDF] Browser launch error for task leaderboard:', e.message);
+  }
+
+  if (browser) {
+    try {
+      console.log('🚀 [PDF] Rendering Task Leaderboard HTML in Chromium...');
+      const page = await browser.newPage();
+
+      const html = buildTaskLeaderboardHTML(group, monthStr, taskLeaderboards);
+
+      await page.setContent(html, {
+        waitUntil: 'domcontentloaded',
+        timeout: 15000
+      });
+
+      if (page.evaluate) {
+        await page.evaluate(async () => {
+          if (document.fonts?.ready) await document.fonts.ready;
+        });
+      }
+
+      await Promise.race([
+        page.evaluate(async () => {
+          const imgs = Array.from(document.images);
+          await Promise.all(
+            imgs.map((img) =>
+              img.complete
+                ? Promise.resolve()
+                : new Promise((r) => {
+                    img.addEventListener('load', r, { once: true });
+                    img.addEventListener('error', r, { once: true });
+                  })
+            )
+          );
+        }),
+        new Promise((r) => setTimeout(r, 3000))
+      ]);
+
+      const pdfBuf = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
+        preferCSSPageSize: true
+      });
+
+      await browser.close();
+      console.log(`✅ [PDF] Task Leaderboard Chromium PDF ready: ${(pdfBuf.length / 1024).toFixed(1)} KB`);
+      return Buffer.from(pdfBuf);
+    } catch (err) {
+      console.error('❌ [PDF] Task Leaderboard Chromium failed, falling back to PDFKit:', err.message);
+      try {
+        await browser.close();
+      } catch (_) {}
+    }
+  }
+
+  console.log('⚠️ [PDF] Falling back to PDFKit Task Leaderboard generator...');
+  const fallbackBuf = await generatePDFKitTaskLeaderboardReport(group, monthStr, taskLeaderboards);
+  console.log(`✅ [PDF] Task Leaderboard PDFKit fallback ready: ${(fallbackBuf.length / 1024).toFixed(1)} KB`);
   return fallbackBuf;
 };

@@ -678,84 +678,7 @@ export const getGroupMonthlySummary = async (req, res) => {
   }
 };
 
-// @desc    Broadcast group monthly reports & leaderboard to Telegram
-// @route   POST /api/reports/group/:groupId/telegram
-// @access  Private (Admin / Member)
-export const broadcastGroupMonthlyReportsTelegram = async (req, res) => {
-  try {
-    const { groupId } = req.params;
-    const currentUserId = (req.user.id || req.user._id).toString();
-
-    const group = await collections.groups.findById(groupId);
-    if (!group) {
-      return res.status(404).json({ success: false, message: 'Group not found' });
-    }
-
-    const isMember = group.members && group.members.some((m) => (m.userId || '').toString() === currentUserId);
-    if (!isMember) {
-      return res.status(403).json({ success: false, message: 'Must be a group member to broadcast reports' });
-    }
-
-    const now = new Date();
-    const targetMonthStr = req.body.month || req.query.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-
-    const { sendGroupReportsToTelegram } = await import('../../services/telegramService.js');
-    const result = await sendGroupReportsToTelegram(groupId, targetMonthStr);
-
-    if (!result.success) {
-      return res.status(400).json({ success: false, message: result.message || result.error || 'Failed to send Telegram reports' });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: `Successfully broadcasted ${result.sentCount} reports to Telegram!`,
-      data: result
-    });
-  } catch (error) {
-    console.error('Broadcast Telegram Error:', error);
-    res.status(500).json({ success: false, message: 'Failed to broadcast Telegram reports', error: error.message });
-  }
-};
-
-// @desc    Broadcast group daily pending tasks reminder to Telegram
-// @route   POST /api/reports/group/:groupId/telegram/reminders
-// @access  Private (Admin / Member)
-export const broadcastGroupDailyPendingRemindersTelegram = async (req, res) => {
-  try {
-    const { groupId } = req.params;
-    const currentUserId = (req.user.id || req.user._id).toString();
-
-    const group = await collections.groups.findById(groupId);
-    if (!group) {
-      return res.status(404).json({ success: false, message: 'Group not found' });
-    }
-
-    const isMember = group.members && group.members.some((m) => (m.userId || '').toString() === currentUserId);
-    if (!isMember) {
-      return res.status(403).json({ success: false, message: 'Must be a group member to broadcast reminders' });
-    }
-
-    const dateStr = req.body.date || req.query.date || new Date().toISOString().split('T')[0];
-
-    const { sendDailyPendingRemindersTelegram } = await import('../../services/telegramService.js');
-    const result = await sendDailyPendingRemindersTelegram(groupId, dateStr);
-
-    if (!result.success) {
-      return res.status(400).json({ success: false, message: result.message || result.error || 'Failed to send Telegram reminder' });
-    }
-
-    res.status(200).json({
-      success: true,
-      message: 'Daily pending reminder sent to Telegram!',
-      data: result
-    });
-  } catch (error) {
-    console.error('Broadcast Pending Reminder Error:', error);
-    res.status(500).json({ success: false, message: 'Failed to broadcast Telegram reminder', error: error.message });
-  }
-};
-
-// @desc    Download / Preview Group Monthly PDF Report Book
+// @desc    Download / Preview Group Monthly PDF Report Book (Member-Wise)
 // @route   GET /api/reports/group/:groupId/pdf
 // @access  Private (Admin / Member)
 export const downloadGroupMonthlyReportPDF = async (req, res) => {
@@ -778,20 +701,20 @@ export const downloadGroupMonthlyReportPDF = async (req, res) => {
     const now = new Date();
     const targetMonthStr = req.query.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    const { compileGroupMonthlyReports } = await import('../../services/telegramService.js');
+    const { compileGroupMonthlyReports, generateGroupMonthlyReportPDF } = await import('../../services/pdfReportService.js');
     const groupReports = await compileGroupMonthlyReports(group, targetMonthStr);
 
     if (groupReports.length === 0) {
       return res.status(404).json({ success: false, message: `No reports found for ${targetMonthStr}` });
     }
 
-    const { generateGroupMonthlyReportPDF } = await import('../../services/pdfReportService.js');
     const pdfBuffer = await generateGroupMonthlyReportPDF(group, targetMonthStr, groupReports);
 
-    const filename = `${(group.name || 'Group').replace(/[^a-zA-Z0-9]/g, '_')}_Report_${targetMonthStr}.pdf`;
+    const filename = `${(group.name || 'Group').replace(/[^a-zA-Z0-9]/g, '_')}_Member_Report_${targetMonthStr}.pdf`;
 
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
     res.setHeader('Content-Length', pdfBuffer.length);
     return res.status(200).send(pdfBuffer);
   } catch (error) {
@@ -800,28 +723,47 @@ export const downloadGroupMonthlyReportPDF = async (req, res) => {
   }
 };
 
-// @desc    Trigger Telegram PDF Broadcast directly from URL for testing
-// @route   GET /api/reports/trigger-telegram
-// @access  Public
-export const triggerTelegramMonthlyReport = async (req, res) => {
+// @desc    Download / Preview Group Task-Wise Monthly Leaderboard PDF Book
+// @route   GET /api/reports/group/:groupId/task-pdf
+// @access  Private (Admin / Member)
+export const downloadGroupTaskLeaderboardPDF = async (req, res) => {
   try {
-    const allGroups = await collections.groups.find();
-    const group = allGroups[0];
+    const { groupId } = req.params;
+    const currentUserId = (req.user?.id || req.user?._id)?.toString();
+
+    const group = await collections.groups.findById(groupId);
     if (!group) {
-      return res.status(404).json({ success: false, message: 'No group found' });
+      return res.status(404).json({ success: false, message: 'Group not found' });
     }
 
-    const targetMonth = req.query.month || '2026-09';
-    const { sendGroupReportsToTelegram } = await import('../../services/telegramService.js');
-    const result = await sendGroupReportsToTelegram(group.id || group._id, targetMonth);
+    if (currentUserId) {
+      const isMember = group.members && group.members.some((m) => (m.userId || '').toString() === currentUserId);
+      if (!isMember) {
+        return res.status(403).json({ success: false, message: 'Must be a group member to download PDF report' });
+      }
+    }
 
-    res.status(200).json({
-      success: true,
-      message: `Render successfully generated and broadcasted ${targetMonth} PDF report to Telegram!`,
-      data: result
-    });
+    const now = new Date();
+    const targetMonthStr = req.query.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const { compileGroupTaskLeaderboards, generateGroupTaskLeaderboardPDF } = await import('../../services/pdfReportService.js');
+    const taskLeaderboards = await compileGroupTaskLeaderboards(group, targetMonthStr);
+
+    if (taskLeaderboards.length === 0) {
+      return res.status(404).json({ success: false, message: `No group habits found to generate leaderboard for ${targetMonthStr}` });
+    }
+
+    const pdfBuffer = await generateGroupTaskLeaderboardPDF(group, targetMonthStr, taskLeaderboards);
+
+    const filename = `${(group.name || 'Group').replace(/[^a-zA-Z0-9]/g, '_')}_Task_Leaderboard_${targetMonthStr}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition');
+    res.setHeader('Content-Length', pdfBuffer.length);
+    return res.status(200).send(pdfBuffer);
   } catch (error) {
-    console.error('Trigger Telegram Error:', error);
-    res.status(500).json({ success: false, message: 'Failed to trigger Telegram broadcast', error: error.message });
+    console.error('Download Group Task Leaderboard PDF Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to generate task leaderboard PDF', error: error.message });
   }
 };

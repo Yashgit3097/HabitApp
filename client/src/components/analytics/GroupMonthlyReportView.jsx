@@ -10,18 +10,45 @@ import {
   TrendingUp,
   Calendar,
   Sparkles,
-  CheckCircle2
+  CheckCircle2,
+  Download,
+  Loader2,
+  FileText
 } from 'lucide-react';
 import api from '../../api/client';
+import { useUIStore } from '../../stores/uiStore';
+import { getRecentMonthsList } from '../../utils/dateUtils';
 import { Avatar } from '../common/Avatar';
 import { ProfilePhotoModal } from '../common/ProfilePhotoModal';
 import { MonthlyReportView } from './MonthlyReportView';
 import { motion, AnimatePresence } from 'framer-motion';
 
-export const GroupMonthlyReportView = ({ groups = [], selectedMonth }) => {
+export const GroupMonthlyReportView = ({ groups = [], selectedMonth, onSelectMonth }) => {
+  const { showToast } = useUIStore();
+  const recentMonths = getRecentMonthsList(12);
+
   const [selectedGroupId, setSelectedGroupId] = useState(() => (groups[0]?.id || groups[0]?._id || ''));
+  const [internalMonth, setInternalMonth] = useState(() => selectedMonth || recentMonths[0]?.value || '2026-09');
   const [activeMemberReport, setActiveMemberReport] = useState(null);
   const [photoModalData, setPhotoModalData] = useState(null);
+  const [isDownloadingPDF, setIsDownloadingPDF] = useState(false);
+  const [isDownloadingTaskPDF, setIsDownloadingTaskPDF] = useState(false);
+
+  // Sync with prop if selectedMonth changes
+  React.useEffect(() => {
+    if (selectedMonth && selectedMonth !== internalMonth) {
+      setInternalMonth(selectedMonth);
+    }
+  }, [selectedMonth]);
+
+  const activeMonth = selectedMonth || internalMonth;
+
+  const handleMonthChange = (newMonth) => {
+    setInternalMonth(newMonth);
+    if (onSelectMonth) {
+      onSelectMonth(newMonth);
+    }
+  };
 
   // Instant fallback to first group if selectedGroupId is empty
   const activeGroupId = (selectedGroupId || groups[0]?.id || groups[0]?._id || '').toString();
@@ -34,10 +61,10 @@ export const GroupMonthlyReportView = ({ groups = [], selectedMonth }) => {
   }, [groups, selectedGroupId]);
 
   const { data: groupSummaryResponse, isLoading } = useQuery({
-    queryKey: ['groupMonthlySummary', activeGroupId, selectedMonth],
+    queryKey: ['groupMonthlySummary', activeGroupId, activeMonth],
     queryFn: async () => {
       if (!activeGroupId) return null;
-      const res = await api.get(`/reports/group/${activeGroupId}?month=${selectedMonth}`);
+      const res = await api.get(`/reports/group/${activeGroupId}?month=${activeMonth}`);
       return res.data?.data;
     },
     enabled: !!activeGroupId
@@ -45,16 +72,118 @@ export const GroupMonthlyReportView = ({ groups = [], selectedMonth }) => {
 
   // Query individual member detailed report when modal opens
   const { data: memberDetailedReport, isLoading: isMemberLoading } = useQuery({
-    queryKey: ['monthlyReport', activeMemberReport?.userId, activeGroupId, selectedMonth],
+    queryKey: ['monthlyReport', activeMemberReport?.userId, activeGroupId, activeMonth],
     queryFn: async () => {
       if (!activeMemberReport?.userId || !activeGroupId) return null;
       const res = await api.get(
-        `/reports/monthly?userId=${activeMemberReport.userId}&groupId=${activeGroupId}&month=${selectedMonth}`
+        `/reports/monthly?userId=${activeMemberReport.userId}&groupId=${activeGroupId}&month=${activeMonth}`
       );
       return res.data?.data;
     },
     enabled: !!activeMemberReport?.userId
   });
+
+  // Handle Member-Wise PDF report download
+  const handleDownloadPDF = async () => {
+    if (!activeGroupId) {
+      showToast('Please select a group first', 'error');
+      return;
+    }
+
+    setIsDownloadingPDF(true);
+    showToast(`Generating member PDF report for ${activeMonth}...`, 'info');
+
+    try {
+      const response = await api.get(`/reports/group/${activeGroupId}/pdf?month=${activeMonth}`, {
+        responseType: 'blob'
+      });
+
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+
+      const groupName = groupSummary?.groupName || groups.find((g) => (g.id || g._id)?.toString() === activeGroupId)?.name || 'Group';
+      const safeGroupName = groupName.replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `${safeGroupName}_Member_Report_${activeMonth}.pdf`;
+
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      showToast(`Member Monthly Report for ${activeMonth} downloaded! 📄`, 'success');
+    } catch (err) {
+      console.error('Download Group PDF Report Error:', err);
+      let errorMsg = 'Failed to generate PDF report. Please try again.';
+
+      if (err.response && err.response.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const json = JSON.parse(text);
+          if (json.message) errorMsg = json.message;
+        } catch (_) {}
+      } else if (err.response?.data?.message) {
+        errorMsg = err.response.data.message;
+      }
+
+      showToast(errorMsg, 'error');
+    } finally {
+      setIsDownloadingPDF(false);
+    }
+  };
+
+  // Handle Task-Wise Leaderboard PDF report download
+  const handleDownloadTaskPDF = async () => {
+    if (!activeGroupId) {
+      showToast('Please select a group first', 'error');
+      return;
+    }
+
+    setIsDownloadingTaskPDF(true);
+    showToast(`Generating task-wise leaderboard PDF for ${activeMonth}...`, 'info');
+
+    try {
+      const response = await api.get(`/reports/group/${activeGroupId}/task-pdf?month=${activeMonth}`, {
+        responseType: 'blob'
+      });
+
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+
+      const groupName = groupSummary?.groupName || groups.find((g) => (g.id || g._id)?.toString() === activeGroupId)?.name || 'Group';
+      const safeGroupName = groupName.replace(/[^a-zA-Z0-9]/g, '_');
+      const filename = `${safeGroupName}_Task_Leaderboard_${activeMonth}.pdf`;
+
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.parentNode.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      showToast(`Task Leaderboard Report for ${activeMonth} downloaded! 🏆`, 'success');
+    } catch (err) {
+      console.error('Download Task Leaderboard PDF Error:', err);
+      let errorMsg = 'Failed to generate task leaderboard PDF. Please try again.';
+
+      if (err.response && err.response.data instanceof Blob) {
+        try {
+          const text = await err.response.data.text();
+          const json = JSON.parse(text);
+          if (json.message) errorMsg = json.message;
+        } catch (_) {}
+      } else if (err.response?.data?.message) {
+        errorMsg = err.response.data.message;
+      }
+
+      showToast(errorMsg, 'error');
+    } finally {
+      setIsDownloadingTaskPDF(false);
+    }
+  };
 
   if (groups.length === 0) {
     return (
@@ -84,23 +213,93 @@ export const GroupMonthlyReportView = ({ groups = [], selectedMonth }) => {
 
   return (
     <div className="space-y-3">
-      {/* Group Selector Dropdown */}
-      <div className="flex items-center justify-between gap-3 bg-white p-3 rounded-2xl border border-emerald-100/90 shadow-2xs">
-        <label className="text-xs font-black text-emerald-950 flex items-center gap-1.5 shrink-0">
-          <Users className="w-3.5 h-3.5 text-[#047857]" />
-          <span>Select Group:</span>
-        </label>
-        <select
-          value={activeGroupId}
-          onChange={(e) => setSelectedGroupId(e.target.value)}
-          className="px-3 py-1.5 bg-emerald-50/70 border border-emerald-200 rounded-xl text-xs font-bold text-[#022c22] focus:outline-none focus:ring-1 focus:ring-[#10b981] flex-1 max-w-xs cursor-pointer"
-        >
-          {groups.map((g) => (
-            <option key={g.id || g._id} value={g.id || g._id}>
-              {g.name}
-            </option>
-          ))}
-        </select>
+      {/* Group & Month Selector Bar with 2 Mobile-Friendly Download Buttons */}
+      <div className="bg-white p-3 rounded-2xl border border-emerald-100/90 shadow-2xs space-y-2.5">
+        {/* Selectors Row */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {/* Select Group */}
+          <div className="flex items-center gap-2 min-w-0 bg-emerald-50/50 p-1.5 rounded-xl border border-emerald-100">
+            <label className="text-xs font-black text-emerald-950 flex items-center gap-1.5 shrink-0 pl-1">
+              <Users className="w-3.5 h-3.5 text-[#047857]" />
+              <span>Group:</span>
+            </label>
+            <select
+              value={activeGroupId}
+              onChange={(e) => setSelectedGroupId(e.target.value)}
+              className="px-2 py-1 bg-white border border-emerald-200 rounded-lg text-xs font-bold text-[#022c22] focus:outline-none focus:ring-1 focus:ring-[#10b981] flex-1 min-w-0 cursor-pointer truncate"
+            >
+              {groups.map((g) => (
+                <option key={g.id || g._id} value={g.id || g._id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Select Month */}
+          <div className="flex items-center gap-2 min-w-0 bg-emerald-50/50 p-1.5 rounded-xl border border-emerald-100">
+            <label className="text-xs font-black text-emerald-950 flex items-center gap-1.5 shrink-0 pl-1">
+              <Calendar className="w-3.5 h-3.5 text-[#047857]" />
+              <span>Month:</span>
+            </label>
+            <select
+              value={activeMonth}
+              onChange={(e) => handleMonthChange(e.target.value)}
+              className="px-2 py-1 bg-white border border-emerald-200 rounded-lg text-xs font-bold text-[#022c22] focus:outline-none focus:ring-1 focus:ring-[#10b981] flex-1 min-w-0 cursor-pointer"
+            >
+              {recentMonths.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label} {m.isCurrentMonth ? '(Current)' : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* 2 Download Buttons (Mobile-Friendly Responsive Row) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-gray-100">
+          {/* Button 1: Member-wise PDF Report */}
+          <button
+            type="button"
+            onClick={handleDownloadPDF}
+            disabled={isDownloadingPDF || !activeGroupId}
+            className="w-full py-2 px-3 bg-gradient-to-r from-[#047857] to-[#065f46] hover:from-[#065f46] hover:to-[#047857] disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+            title="Download full multi-page Member Performance PDF Book"
+          >
+            {isDownloadingPDF ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Downloading Member PDF...</span>
+              </>
+            ) : (
+              <>
+                <FileText className="w-3.5 h-3.5 stroke-[2.5]" />
+                <span>Download Member Report PDF</span>
+              </>
+            )}
+          </button>
+
+          {/* Button 2: Task-wise Leaderboard PDF Report */}
+          <button
+            type="button"
+            onClick={handleDownloadTaskPDF}
+            disabled={isDownloadingTaskPDF || !activeGroupId}
+            className="w-full py-2 px-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-500 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+            title="Download Task-by-Task Leaderboard PDF Book (with Dandvat, Mantra & Screen Time ranks)"
+          >
+            {isDownloadingTaskPDF ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Downloading Task PDF...</span>
+              </>
+            ) : (
+              <>
+                <Trophy className="w-3.5 h-3.5 stroke-[2.5] fill-amber-200 text-amber-200" />
+                <span>Download Task Leaderboard PDF</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {isLoading ? (
@@ -142,30 +341,64 @@ export const GroupMonthlyReportView = ({ groups = [], selectedMonth }) => {
                 </div>
               </div>
 
-              {topPerformer && (
-                <div
-                  onClick={() =>
-                    setPhotoModalData({
-                      src: topPerformer.avatar,
-                      name: topPerformer.name,
-                      username: topPerformer.username,
-                      role: topPerformer.role,
-                      subtitle: `🏆 Top Performer • ${topPerformer.disciplineScore} Score`
-                    })
-                  }
-                  className="bg-emerald-950/50 border border-emerald-400/30 rounded-xl px-3 py-1.5 flex items-center gap-2 self-start sm:self-auto cursor-pointer hover:bg-emerald-950/70 transition-all"
-                  title="Tap to view performer details"
-                >
-                  <Avatar src={topPerformer.avatar} name={topPerformer.name} size="xs" className="ring-1 ring-amber-400 rounded-full" />
-                  <div className="text-left min-w-0">
-                    <p className="text-[9px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1">
-                      <Trophy className="w-2.5 h-2.5 fill-amber-300 text-amber-300" />
-                      <span>Top Performer</span>
-                    </p>
-                    <p className="text-[11px] font-black text-white truncate max-w-[110px]">{topPerformer.name}</p>
+              <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
+                {topPerformer && (
+                  <div
+                    onClick={() =>
+                      setPhotoModalData({
+                        src: topPerformer.avatar,
+                        name: topPerformer.name,
+                        username: topPerformer.username,
+                        role: topPerformer.role,
+                        subtitle: `🏆 Top Performer • ${topPerformer.disciplineScore} Score`
+                      })
+                    }
+                    className="bg-emerald-950/50 border border-emerald-400/30 rounded-xl px-2.5 py-1.5 flex items-center gap-2 cursor-pointer hover:bg-emerald-950/70 transition-all"
+                    title="Tap to view performer details"
+                  >
+                    <Avatar src={topPerformer.avatar} name={topPerformer.name} size="xs" className="ring-1 ring-amber-400 rounded-full" />
+                    <div className="text-left min-w-0">
+                      <p className="text-[9px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1">
+                        <Trophy className="w-2.5 h-2.5 fill-amber-300 text-amber-300" />
+                        <span>Top Performer</span>
+                      </p>
+                      <p className="text-[11px] font-black text-white truncate max-w-[100px]">{topPerformer.name}</p>
+                    </div>
                   </div>
+                )}
+
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={handleDownloadPDF}
+                    disabled={isDownloadingPDF}
+                    className="px-2.5 py-1.5 bg-white/15 hover:bg-white/25 disabled:opacity-50 text-white rounded-xl text-xs font-black shadow-xs flex items-center gap-1 transition-all cursor-pointer border border-white/20 active:scale-95"
+                    title="Download full text member PDF report book"
+                  >
+                    {isDownloadingPDF ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <FileText className="w-3.5 h-3.5" />
+                    )}
+                    <span>Member PDF</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDownloadTaskPDF}
+                    disabled={isDownloadingTaskPDF}
+                    className="px-2.5 py-1.5 bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-amber-950 rounded-xl text-xs font-black shadow-xs flex items-center gap-1 transition-all cursor-pointer active:scale-95"
+                    title="Download full text task-wise leaderboard PDF book"
+                  >
+                    {isDownloadingTaskPDF ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Trophy className="w-3.5 h-3.5 fill-current" />
+                    )}
+                    <span>Task Leaderboard</span>
+                  </button>
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Quick Stat Pill Bar */}
