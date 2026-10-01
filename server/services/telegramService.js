@@ -59,31 +59,43 @@ export const sendTelegramDocument = async ({ buffer, filename, caption = '', cha
     return { success: false, reason: 'Missing token or chat ID' };
   }
 
-  try {
-    const formData = new FormData();
-    formData.append('chat_id', chatId);
-    formData.append('caption', caption);
-    formData.append('parse_mode', 'HTML');
+  const maxRetries = 3;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const formData = new FormData();
+      formData.append('chat_id', chatId);
+      formData.append('caption', caption);
+      formData.append('parse_mode', 'HTML');
 
-    const blob = new Blob([buffer], { type: 'application/pdf' });
-    formData.append('document', blob, filename || 'Monthly_Report.pdf');
+      const blob = new Blob([buffer], { type: 'application/pdf' });
+      formData.append('document', blob, filename || 'Monthly_Report.pdf');
 
-    const response = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
-      method: 'POST',
-      body: formData
-    });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-    const data = await response.json();
-    if (!data.ok) {
-      console.error('❌ Telegram sendDocument error:', data.description);
-      return { success: false, error: data.description };
+      const response = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      const data = await response.json();
+      if (!data.ok) {
+        console.error(`❌ Telegram sendDocument error (attempt ${attempt}):`, data.description);
+        if (attempt === maxRetries) return { success: false, error: data.description };
+      } else {
+        console.log(`✅ [Telegram] Successfully sent PDF document: ${filename}`);
+        return { success: true, messageId: data.result?.message_id };
+      }
+    } catch (error) {
+      console.warn(`⚠️ Telegram document send attempt ${attempt} failed:`, error.message);
+      if (attempt === maxRetries) {
+        console.error('❌ Failed to send Telegram document after all retries:', error.message);
+        return { success: false, error: error.message };
+      }
+      await new Promise(r => setTimeout(r, 2000));
     }
-
-    console.log(`✅ [Telegram] Successfully sent PDF document: ${filename}`);
-    return { success: true, messageId: data.result?.message_id };
-  } catch (error) {
-    console.error('❌ Failed to send Telegram document:', error.message);
-    return { success: false, error: error.message };
   }
 };
 

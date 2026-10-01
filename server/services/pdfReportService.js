@@ -835,22 +835,6 @@ const buildReportHTML = (group, monthStr, memberReports) => {
     ${monthName} ${yearStr}
   </title>
 
-  <link
-    rel="preconnect"
-    href="https://fonts.googleapis.com"
-  >
-
-  <link
-    rel="preconnect"
-    href="https://fonts.gstatic.com"
-    crossorigin
-  >
-
-  <link
-    href="https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&family=Noto+Sans+Gujarati:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap"
-    rel="stylesheet"
-  >
-
   <style>
     ${getEmbeddedFontsCSS()}
 
@@ -2564,8 +2548,8 @@ export const generateGroupMonthlyReportPDF = async (group, monthStr, memberRepor
       const html = buildReportHTML(group, monthStr, memberReports);
 
       await page.setContent(html, {
-        waitUntil: 'networkidle0',
-        timeout: 45000
+        waitUntil: 'domcontentloaded',
+        timeout: 15000
       });
 
       // Wait for embedded fonts to be ready
@@ -2575,20 +2559,23 @@ export const generateGroupMonthlyReportPDF = async (group, monthStr, memberRepor
         }
       });
 
-      // Wait for all avatar images to finish loading (or fail gracefully)
-      await page.evaluate(async () => {
-        const imgs = Array.from(document.images);
-        await Promise.all(
-          imgs.map((img) =>
-            img.complete
-              ? Promise.resolve()
-              : new Promise((r) => {
-                  img.addEventListener('load', r, { once: true });
-                  img.addEventListener('error', r, { once: true });
-                })
-          )
-        );
-      });
+      // Wait at most 3 seconds for avatar images (never hangs or times out)
+      await Promise.race([
+        page.evaluate(async () => {
+          const imgs = Array.from(document.images);
+          await Promise.all(
+            imgs.map((img) =>
+              img.complete
+                ? Promise.resolve()
+                : new Promise((r) => {
+                    img.addEventListener('load', r, { once: true });
+                    img.addEventListener('error', r, { once: true });
+                  })
+            )
+          );
+        }),
+        new Promise((r) => setTimeout(r, 3000))
+      ]);
 
       const pdfBuf = await page.pdf({
         format: 'A4',
