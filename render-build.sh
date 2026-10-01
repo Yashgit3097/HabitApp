@@ -2,6 +2,11 @@
 # Exit on error
 set -o errexit
 
+if [ -d "server" ]; then
+  echo "📂 Entering server directory..."
+  cd server
+fi
+
 echo "📦 Installing npm dependencies..."
 npm install
 
