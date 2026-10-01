@@ -612,7 +612,7 @@ export const getGroupMonthlySummary = async (req, res) => {
 
         if (isDone && l.date) {
           if (!memberLogsByDate[l.date]) memberLogsByDate[l.date] = new Set();
-          memberLogsByDate[l.date].add((log.habitId || '').toString());
+          memberLogsByDate[l.date].add((l.habitId || '').toString());
         }
       });
 
@@ -752,5 +752,58 @@ export const broadcastGroupDailyPendingRemindersTelegram = async (req, res) => {
   } catch (error) {
     console.error('Broadcast Pending Reminder Error:', error);
     res.status(500).json({ success: false, message: 'Failed to broadcast Telegram reminder', error: error.message });
+  }
+};
+
+// @desc    Download / Preview Group Monthly PDF Report Book
+// @route   GET /api/reports/group/:groupId/pdf
+// @access  Private (Admin / Member)
+export const downloadGroupMonthlyReportPDF = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const currentUserId = (req.user?.id || req.user?._id)?.toString();
+
+    const group = await collections.groups.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    if (currentUserId) {
+      const isMember = group.members && group.members.some((m) => (m.userId || '').toString() === currentUserId);
+      if (!isMember) {
+        return res.status(403).json({ success: false, message: 'Must be a group member to download PDF report' });
+      }
+    }
+
+    const now = new Date();
+    const targetMonthStr = req.query.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const allMonthlyReports = await collections.monthlyReports.find();
+    const groupReports = allMonthlyReports.filter(
+      (r) => (r.groupId || '').toString() === groupId.toString() && r.month === targetMonthStr
+    );
+
+    if (groupReports.length === 0) {
+      return res.status(404).json({ success: false, message: `No reports found for ${targetMonthStr}` });
+    }
+
+    groupReports.sort(
+      (a, b) =>
+        (b.overallStats?.disciplineScore || 0) - (a.overallStats?.disciplineScore || 0) ||
+        (b.overallStats?.overallCompletionRate || 0) - (a.overallStats?.overallCompletionRate || 0)
+    );
+
+    const { generateGroupMonthlyReportPDF } = await import('../../services/pdfReportService.js');
+    const pdfBuffer = await generateGroupMonthlyReportPDF(group, targetMonthStr, groupReports);
+
+    const filename = `${(group.name || 'Group').replace(/[^a-zA-Z0-9]/g, '_')}_Report_${targetMonthStr}.pdf`;
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    return res.status(200).send(pdfBuffer);
+  } catch (error) {
+    console.error('Download Group Monthly PDF Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to generate PDF', error: error.message });
   }
 };

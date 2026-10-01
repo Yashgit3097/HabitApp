@@ -157,6 +157,11 @@ export const sendGroupReportsToTelegram = async (groupId, month, chatIdOverride 
 
     if (sendRes.success) {
       console.log(`✅ [Telegram] Broadcasted PDF Monthly Report Book to Telegram.`);
+      try {
+        await collections.groups.updateOne({ id: groupId.toString() }, { lastTelegramReportMonth: month });
+      } catch (saveErr) {
+        console.warn('⚠️ Could not update lastTelegramReportMonth on group:', saveErr.message);
+      }
       return { success: true, filename, totalPages: groupReports.length + 1 };
     } else {
       console.warn('⚠️ PDF send failed, falling back to text leaderboard:', sendRes.error);

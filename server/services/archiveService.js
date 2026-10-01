@@ -369,9 +369,16 @@ export const runMonthlyArchiveAndCleanup = async () => {
 
     console.log(`✅ [Archive Service] Finalized ${reportsGenerated} user & group reports for ${prevMonthStr}.`);
 
-    // 3. Broadcast finalized reports to Telegram Group
+    // 3. Broadcast finalized reports to Telegram Group (only once per month!)
     for (const group of allGroups) {
       const groupId = (group.id || group._id).toString();
+
+      // Deduplication guard: Check if already sent for this month to prevent sending on every server restart / commit
+      if (group.lastTelegramReportMonth === prevMonthStr) {
+        console.log(`ℹ️ [Archive Service] PDF report already broadcasted to Telegram for "${group.name}" (${prevMonthStr}). Skipping duplicate send.`);
+        continue;
+      }
+
       try {
         console.log(`📢 [Archive Service] Broadcasting ${prevMonthStr} reports to Telegram for group: ${group.name}...`);
         await sendGroupReportsToTelegram(groupId, prevMonthStr);

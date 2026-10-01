@@ -1,6 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import puppeteer from 'puppeteer-core';
+import puppeteer from 'puppeteer';
+import puppeteerCore from 'puppeteer-core';
+import chromium from '@sparticuz/chromium';
 import PDFDocument from 'pdfkit';
 
 const MONTH_NAMES = [
@@ -19,32 +21,111 @@ const MONTH_NAMES = [
 ];
 
 /**
- * Locate Chrome / Edge browser executable across Windows, Mac, and Linux (Render)
+ * Common Chromium Launch Arguments for Cloud & Local Environments
  */
-const findChromeExecutable = () => {
-  if (
-    process.env.PUPPETEER_EXECUTABLE_PATH &&
-    fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)
-  ) {
-    return process.env.PUPPETEER_EXECUTABLE_PATH;
+const BROWSER_ARGS = [
+  '--no-sandbox',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-accelerated-2d-canvas',
+  '--disable-gpu',
+  '--no-first-run',
+  '--no-zygote',
+  '--single-process',
+  '--font-render-hinting=none',
+  '--hide-scrollbars',
+  '--disable-extensions'
+];
+
+/**
+ * Intelligently Launch Chromium across Local OS, Render Containers, Docker, and Serverless
+ */
+const launchBrowser = async () => {
+  // 1. Explicit environment variable path
+  if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+    try {
+      console.log(`🚀 [PDF Generator] Launching via PUPPETEER_EXECUTABLE_PATH: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
+      return await puppeteerCore.launch({
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
+        headless: true,
+        args: BROWSER_ARGS
+      });
+    } catch (err) {
+      console.warn('⚠️ PUPPETEER_EXECUTABLE_PATH launch failed:', err.message);
+    }
   }
 
-  const possiblePaths = [
+  // 2. Try @sparticuz/chromium for Linux containers (Render, Lambda, Railway, etc.)
+  if (process.platform === 'linux') {
+    try {
+      console.log('🚀 [PDF Generator] Attempting @sparticuz/chromium for Linux environment...');
+      const sparticuzPath = await chromium.executablePath();
+      if (sparticuzPath) {
+        return await puppeteerCore.launch({
+          executablePath: sparticuzPath,
+          headless: chromium.headless || true,
+          args: [...(chromium.args || []), ...BROWSER_ARGS]
+        });
+      }
+    } catch (sparticuzErr) {
+      console.warn('⚠️ @sparticuz/chromium launch failed:', sparticuzErr.message);
+    }
+  }
+
+  // 3. Try standard system binary paths on Windows, Mac, Linux
+  const candidatePaths = [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
     'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-
     '/usr/bin/google-chrome',
     '/usr/bin/google-chrome-stable',
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
-
+    '/snap/bin/chromium',
+    '/opt/render/.cache/puppeteer/chrome/linux-133.0.6943.141/chrome-linux64/chrome',
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
   ];
 
-  for (const p of possiblePaths) {
-    if (fs.existsSync(p)) return p;
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
+      try {
+        console.log(`🚀 [PDF Generator] Launching system Chromium/Chrome at: ${p}`);
+        return await puppeteerCore.launch({
+          executablePath: p,
+          headless: true,
+          args: BROWSER_ARGS
+        });
+      } catch (err) {
+        console.warn(`⚠️ System path ${p} launch failed:`, err.message);
+      }
+    }
+  }
+
+  // 4. Try bundled Puppeteer executablePath
+  try {
+    const bundledPath = puppeteer.executablePath();
+    if (bundledPath && fs.existsSync(bundledPath)) {
+      console.log(`🚀 [PDF Generator] Launching Puppeteer bundled browser: ${bundledPath}`);
+      return await puppeteer.launch({
+        executablePath: bundledPath,
+        headless: true,
+        args: BROWSER_ARGS
+      });
+    }
+  } catch (bundledErr) {
+    console.warn('⚠️ Bundled puppeteer.executablePath() not found:', bundledErr.message);
+  }
+
+  // 5. Last-resort default launch
+  try {
+    console.log('🚀 [PDF Generator] Attempting default puppeteer.launch()...');
+    return await puppeteer.launch({
+      headless: true,
+      args: BROWSER_ARGS
+    });
+  } catch (defaultErr) {
+    console.warn('⚠️ Default puppeteer.launch() failed:', defaultErr.message);
   }
 
   return null;
@@ -2119,37 +2200,211 @@ const buildReportHTML = (group, monthStr, memberReports) => {
 };
 
 /**
- * Generate PDF using Chromium (Puppeteer-core)
- * or fallback to PDFKit
+ * Comprehensive Fallback PDF Generator using PDFKit
+ * Generates a full multi-page formatted document (Page 1 = Summary/Leaderboard, Pages 2..N = Member Details)
+ */
+const generatePDFKitReport = (group, monthStr, memberReports) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const [yearStr, monthNumStr] = (monthStr || '').split('-');
+      const monthNum = parseInt(monthNumStr, 10);
+      const monthName = MONTH_NAMES[monthNum - 1] || monthStr;
+
+      const totalMembers = memberReports.length;
+      const avgCompletion =
+        totalMembers > 0
+          ? Math.round(
+              memberReports.reduce((s, m) => s + (m.overallStats?.overallCompletionRate || 0), 0) / totalMembers
+            )
+          : 0;
+
+      const doc = new PDFDocument({
+        size: 'A4',
+        margin: 36,
+        bufferPages: true,
+        info: {
+          Title: `${group.name || 'Sankalp Group'} Monthly Report - ${monthStr}`,
+          Author: 'Sankalp Habit Tracker'
+        }
+      });
+
+      const buffers = [];
+      doc.on('data', (chunk) => buffers.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(buffers)));
+      doc.on('error', (err) => reject(err));
+
+      // PAGE 1: COVER & LEADERBOARD
+      doc.rect(0, 0, doc.page.width, doc.page.height).fill('#ffffff');
+
+      // Top Bar
+      doc.fillColor('#0f766e').fontSize(11).text('|| Jay Swaminarayan ||', 36, 30);
+      doc.fillColor('#64748b').fontSize(10).text(`${group.name || 'Sankalp Group'} • Monthly Report`, 200, 30, { align: 'right', width: 350 });
+      doc.moveTo(36, 46).lineTo(559, 46).strokeColor('#0f766e').lineWidth(1.5).stroke();
+
+      // Title Banner
+      doc.moveDown(1);
+      doc.fillColor('#134e4a').fontSize(20).text(group.name || 'Sankalp Group', { align: 'center' });
+      doc.fillColor('#0f766e').fontSize(12).text(`Monthly Performance Report — ${monthName} ${yearStr}`, { align: 'center' });
+      doc.moveDown(1);
+
+      // Summary Cards
+      const cardY = 120;
+      doc.roundedRect(36, cardY, 160, 50, 6).fillAndStroke('#f0fdf4', '#a7f3d0');
+      doc.fillColor('#166534').fontSize(9).text('TOTAL MEMBERS', 46, cardY + 10);
+      doc.fillColor('#14532d').fontSize(16).text(`${totalMembers}`, 46, cardY + 24);
+
+      doc.roundedRect(210, cardY, 160, 50, 6).fillAndStroke('#f0fdfa', '#99f6e4');
+      doc.fillColor('#0f766e').fontSize(9).text('AVERAGE SUCCESS RATE', 220, cardY + 10);
+      doc.fillColor('#134e4a').fontSize(16).text(`${avgCompletion}%`, 220, cardY + 24);
+
+      doc.roundedRect(385, cardY, 174, 50, 6).fillAndStroke('#fefce8', '#fde047');
+      doc.fillColor('#854d0e').fontSize(9).text('MONTH / YEAR', 395, cardY + 10);
+      doc.fillColor('#713f12').fontSize(16).text(`${monthStr}`, 395, cardY + 24);
+
+      // Leaderboard Table Header
+      const tableTop = 190;
+      doc.fillColor('#0f172a').fontSize(14).text('Monthly Leaderboard Rankings', 36, tableTop);
+      doc.fillColor('#64748b').fontSize(9).text('Members ranked by Discipline Score and completion rate', 36, tableTop + 16);
+
+      const headerY = tableTop + 35;
+      doc.rect(36, headerY, 523, 24).fill('#0f766e');
+      doc.fillColor('#ffffff').fontSize(10);
+      doc.text('Rank', 46, headerY + 7);
+      doc.text('Member Name', 110, headerY + 7);
+      doc.text('Score (Days)', 360, headerY + 7, { align: 'center', width: 90 });
+      doc.text('Success %', 470, headerY + 7, { align: 'center', width: 80 });
+
+      let currentY = headerY + 24;
+      memberReports.forEach((m, idx) => {
+        const rowBg = idx % 2 === 1 ? '#f8fafc' : '#ffffff';
+        doc.rect(36, currentY, 523, 24).fill(rowBg);
+
+        const rankBadge = idx === 0 ? '1 (Gold)' : idx === 1 ? '2 (Silver)' : idx === 2 ? '3 (Bronze)' : `${idx + 1}`;
+        doc.fillColor('#1e293b').fontSize(9);
+        doc.text(rankBadge, 46, currentY + 7);
+        doc.text(m.userProfile?.name || 'Unknown', 110, currentY + 7);
+        doc.text(`${m.overallStats?.disciplineScore || 0}d`, 360, currentY + 7, { align: 'center', width: 90 });
+        doc.text(`${m.overallStats?.overallCompletionRate || 0}%`, 470, currentY + 7, { align: 'center', width: 80 });
+
+        doc.moveTo(36, currentY + 24).lineTo(559, currentY + 24).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
+        currentY += 24;
+      });
+
+      // Bottom Footer for Cover
+      doc.moveTo(36, 780).lineTo(559, 780).strokeColor('#0f766e').lineWidth(1).stroke();
+      doc.fillColor('#64748b').fontSize(9).text('Jay Swaminarayan • Sankalp Habit Tracker', 36, 790);
+      doc.text('Page 1', 500, 790, { align: 'right' });
+
+      // PAGES 2..N: INDIVIDUAL MEMBER REPORTS
+      memberReports.forEach((report, idx) => {
+        doc.addPage();
+        const memberName = report.userProfile?.name || 'Member';
+        const memberUsername = report.userProfile?.username ? `@${report.userProfile.username}` : '';
+        const activeDays = report.activeDaysInMonth || 30;
+        const disciplineScore = report.overallStats?.disciplineScore || 0;
+        const completionRate = report.overallStats?.overallCompletionRate || 0;
+        const pageNum = idx + 2;
+
+        // Top Header
+        doc.fillColor('#0f766e').fontSize(11).text('|| Jay Swaminarayan ||', 36, 30);
+        doc.fillColor('#64748b').fontSize(10).text(`${group.name || 'Sankalp Group'} • Page ${pageNum} of ${totalMembers + 1}`, 200, 30, { align: 'right', width: 350 });
+        doc.moveTo(36, 46).lineTo(559, 46).strokeColor('#0f766e').lineWidth(1.5).stroke();
+
+        // Member Header Card
+        const mCardY = 60;
+        doc.roundedRect(36, mCardY, 523, 75, 8).fillAndStroke('#f8fafc', '#cbd5e1');
+
+        doc.fillColor('#0f172a').fontSize(16).text(memberName, 50, mCardY + 12);
+        if (memberUsername) {
+          doc.fillColor('#64748b').fontSize(10).text(memberUsername, 50, mCardY + 34);
+        }
+        doc.fillColor('#0f766e').fontSize(10).text(`Rank #${idx + 1}  •  Active Days: ${activeDays}d  •  Month: ${monthName} ${yearStr}`, 50, mCardY + 50);
+
+        // Member KPI Pills
+        doc.roundedRect(360, mCardY + 10, 85, 55, 6).fillAndStroke('#f0fdf4', '#86efac');
+        doc.fillColor('#166534').fontSize(8).text('DISCIPLINE', 365, mCardY + 18, { align: 'center', width: 75 });
+        doc.fillColor('#14532d').fontSize(14).text(`${disciplineScore}/${activeDays}`, 365, mCardY + 32, { align: 'center', width: 75 });
+
+        doc.roundedRect(455, mCardY + 10, 85, 55, 6).fillAndStroke('#f0fdfa', '#5eead4');
+        doc.fillColor('#115e59').fontSize(8).text('SUCCESS RATE', 460, mCardY + 18, { align: 'center', width: 75 });
+        doc.fillColor('#134e4a').fontSize(14).text(`${completionRate}%`, 460, mCardY + 32, { align: 'center', width: 75 });
+
+        // Habit Table
+        const hTableY = 155;
+        doc.fillColor('#0f172a').fontSize(13).text('Monthly Habit Compliance Breakdown', 36, hTableY);
+
+        const hHeaderY = hTableY + 22;
+        doc.rect(36, hHeaderY, 523, 22).fill('#0f766e');
+        doc.fillColor('#ffffff').fontSize(9.5);
+        doc.text('Habit / Rule Name', 46, hHeaderY + 6);
+        doc.text('Progress / Active Days', 250, hHeaderY + 6);
+        doc.text('Daily Average', 390, hHeaderY + 6);
+        doc.text('Success %', 485, hHeaderY + 6);
+
+        let hRowY = hHeaderY + 22;
+        (report.habitSummaries || []).forEach((h, hIdx) => {
+          const rowBg = hIdx % 2 === 1 ? '#f8fafc' : '#ffffff';
+          doc.rect(36, hRowY, 523, 26).fill(rowBg);
+
+          let progressStr = `${h.completedDaysCount} / ${activeDays} days`;
+          let avgStr = '-';
+
+          if (h.type === 'count') {
+            progressStr = `${h.typeDetails?.totalCount || 0} ${h.targetUnit || ''} (${h.completedDaysCount}d)`;
+            avgStr = `${h.typeDetails?.dailyAverage || 0} ${h.targetUnit || ''}/day`;
+          } else if (h.type === 'time_target') {
+            const hrs = h.typeDetails?.totalHours || 0;
+            const mins = h.typeDetails?.totalMinutes || 0;
+            progressStr = hrs >= 1 ? `${hrs} hrs (${h.completedDaysCount}d)` : `${mins} mins (${h.completedDaysCount}d)`;
+            avgStr = `${h.typeDetails?.dailyAverageMinutes || 0} mins/day`;
+          } else if (h.type === 'time_of_day') {
+            avgStr = `Avg: ${h.typeDetails?.averageTime || 'N/A'}`;
+          }
+
+          doc.fillColor('#0f172a').fontSize(9).text(h.title, 46, hRowY + 7, { width: 195, lineBreak: false });
+          doc.fillColor('#334155').fontSize(9).text(progressStr, 250, hRowY + 7);
+          doc.fillColor('#475569').fontSize(9).text(avgStr, 390, hRowY + 7);
+          doc.fillColor(h.completionPercentage >= 80 ? '#166534' : h.completionPercentage >= 50 ? '#854d0e' : '#991b1b')
+            .fontSize(9.5)
+            .text(`${h.completionPercentage || 0}%`, 485, hRowY + 7);
+
+          doc.moveTo(36, hRowY + 26).lineTo(559, hRowY + 26).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
+          hRowY += 26;
+        });
+
+        // Footer
+        doc.moveTo(36, 780).lineTo(559, 780).strokeColor('#0f766e').lineWidth(1).stroke();
+        doc.fillColor('#64748b').fontSize(9).text('Jay Swaminarayan • Sankalp Habit Tracker', 36, 790);
+        doc.text(`Page ${pageNum} of ${totalMembers + 1}`, 450, 790, { align: 'right', width: 100 });
+      });
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+};
+
+/**
+ * Generate PDF using Chromium (Puppeteer)
+ * with robust multi-tier launch and PDFKit fallback
  */
 export const generateGroupMonthlyReportPDF = async (
   group,
   monthStr,
   memberReports
 ) => {
-  const chromePath = findChromeExecutable();
+  let browser = null;
 
-  if (chromePath) {
+  try {
+    browser = await launchBrowser();
+  } catch (launchErr) {
+    console.warn('⚠️ [PDF Generator] Browser launch error:', launchErr.message);
+  }
+
+  if (browser) {
     try {
-      console.log(
-        `🚀 [PDF Generator] Launching headless browser (${chromePath})...`
-      );
-
-      const browser = await puppeteer.launch({
-        executablePath: chromePath,
-
-        headless: true,
-
-        args: [
-          '--no-sandbox',
-          '--disable-setuid-sandbox',
-          '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--disable-gpu',
-          '--font-render-hinting=none'
-        ]
-      });
-
+      console.log('🚀 [PDF Generator] Rendering rich HTML report in Chromium...');
       const page = await browser.newPage();
 
       const htmlContent = buildReportHTML(
@@ -2159,47 +2414,28 @@ export const generateGroupMonthlyReportPDF = async (
       );
 
       await page.setContent(htmlContent, {
-        waitUntil: 'networkidle0'
+        waitUntil: 'networkidle0',
+        timeout: 30000
       });
 
-      // Small pause to allow webfonts & images to settle
+      // Small pause to allow webfonts & styles to settle
       await new Promise((r) => setTimeout(r, 600));
 
-      /*
-       * Wait for images to finish loading.
-       * This does not change the report functionality.
-       */
+      // Wait for all images to settle
       await page.evaluate(async () => {
-        const images = Array.from(
-          document.images
-        );
-
+        const images = Array.from(document.images);
         await Promise.all(
           images.map((img) => {
-            if (img.complete) {
-              return Promise.resolve();
-            }
-
+            if (img.complete) return Promise.resolve();
             return new Promise((resolve) => {
-              img.addEventListener(
-                'load',
-                resolve,
-                { once: true }
-              );
-
-              img.addEventListener(
-                'error',
-                resolve,
-                { once: true }
-              );
+              img.addEventListener('load', resolve, { once: true });
+              img.addEventListener('error', resolve, { once: true });
             });
           })
         );
       });
 
-      /*
-       * Make sure browser fonts are ready.
-       */
+      // Wait for fonts
       await page.evaluate(async () => {
         if (document.fonts?.ready) {
           await document.fonts.ready;
@@ -2208,69 +2444,39 @@ export const generateGroupMonthlyReportPDF = async (
 
       const pdfBuffer = await page.pdf({
         format: 'A4',
-
         printBackground: true,
-
         margin: {
           top: '0px',
           right: '0px',
           bottom: '0px',
           left: '0px'
         },
-
         preferCSSPageSize: true
       });
 
       await browser.close();
 
       console.log(
-        `✅ [PDF Generator] Created professional PDF (${pdfBuffer.length} bytes).`
+        `✅ [PDF Generator] Created professional Chromium PDF (${pdfBuffer.length} bytes / ${(pdfBuffer.length / 1024).toFixed(2)} KB).`
       );
 
       return Buffer.from(pdfBuffer);
-
     } catch (browserErr) {
-
       console.error(
         '❌ Chromium PDF generation error, falling back to PDFKit:',
         browserErr.message
       );
+      if (browser) {
+        try {
+          await browser.close();
+        } catch (_) {}
+      }
     }
   }
 
-  /*
-   * Fallback to basic PDFKit if Chromium is unavailable
-   */
-  return new Promise((resolve, reject) => {
-
-    const doc = new PDFDocument({
-      size: 'A4',
-      margin: 36
-    });
-
-    const buffers = [];
-
-    doc.on('data', (c) =>
-      buffers.push(c)
-    );
-
-    doc.on('end', () =>
-      resolve(Buffer.concat(buffers))
-    );
-
-    doc.on('error', (err) =>
-      reject(err)
-    );
-
-    doc
-      .fontSize(16)
-      .text(
-        `${group.name || 'Sankalp Group'} Monthly Report`,
-        {
-          align: 'center'
-        }
-      );
-
-    doc.end();
-  });
+  // Fallback to comprehensive multi-page PDFKit generator
+  console.log('📄 [PDF Generator] Falling back to comprehensive PDFKit multi-page report generator...');
+  const fallbackBuffer = await generatePDFKitReport(group, monthStr, memberReports);
+  console.log(`✅ [PDF Generator] Created comprehensive PDFKit fallback PDF (${fallbackBuffer.length} bytes / ${(fallbackBuffer.length / 1024).toFixed(2)} KB).`);
+  return fallbackBuffer;
 };
