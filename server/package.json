@@ -10,7 +10,8 @@
     "backup": "node scripts/backup-db.js",
     "restore": "node scripts/restore-db.js",
     "test:pdf": "node scripts/test-pdf-generation.js",
-    "test:telegram": "node scripts/test-telegram-pdf.js"
+    "test:telegram": "node scripts/test-telegram-pdf.js",
+    "postinstall": "npx puppeteer browsers install chrome"
   },
   "dependencies": {
     "@sparticuz/chromium": "^153.0.0",

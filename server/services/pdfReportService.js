@@ -1,9 +1,13 @@
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import puppeteer from 'puppeteer';
 import puppeteerCore from 'puppeteer-core';
 import chromium from '@sparticuz/chromium';
 import PDFDocument from 'pdfkit';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const MONTH_NAMES = [
   'જાન્યુઆરી',
@@ -31,11 +35,34 @@ const BROWSER_ARGS = [
   '--disable-gpu',
   '--no-first-run',
   '--no-zygote',
-  '--single-process',
   '--font-render-hinting=none',
   '--hide-scrollbars',
   '--disable-extensions'
 ];
+
+/**
+ * Recursively search for chrome binary in cache directories
+ */
+const findChromeInCache = (dir) => {
+  try {
+    if (!fs.existsSync(dir)) return null;
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const found = findChromeInCache(fullPath);
+        if (found) return found;
+      } else if (
+        (entry.name === 'chrome' || entry.name === 'chrome.exe' || entry.name === 'chromium') &&
+        !entry.name.endsWith('.deb') &&
+        !entry.name.endsWith('.rpm')
+      ) {
+        return fullPath;
+      }
+    }
+  } catch (_) {}
+  return null;
+};
 
 /**
  * Intelligently Launch Chromium across Local OS, Render Containers, Docker, and Serverless
@@ -55,7 +82,43 @@ const launchBrowser = async () => {
     }
   }
 
-  // 2. Try @sparticuz/chromium for Linux containers (Render, Lambda, Railway, etc.)
+  // 2. Search Render / Linux cache directories for installed Chrome
+  const cacheDirs = [
+    '/opt/render/.cache/puppeteer',
+    path.join(process.env.HOME || '/root', '.cache', 'puppeteer'),
+    path.resolve('.cache', 'puppeteer'),
+    path.resolve('..', '.cache', 'puppeteer'),
+    path.resolve('node_modules', 'puppeteer', '.local-chromium')
+  ];
+
+  for (const cacheDir of cacheDirs) {
+    const foundChrome = findChromeInCache(cacheDir);
+    if (foundChrome && fs.existsSync(foundChrome)) {
+      try {
+        console.log(`🚀 [PDF Generator] Launching discovered cached Chrome: ${foundChrome}`);
+        return await puppeteerCore.launch({
+          executablePath: foundChrome,
+          headless: true,
+          args: BROWSER_ARGS
+        });
+      } catch (cacheErr) {
+        console.warn(`⚠️ Cached Chrome ${foundChrome} launch failed:`, cacheErr.message);
+      }
+    }
+  }
+
+  // 3. Try bundled Puppeteer launch directly
+  try {
+    console.log('🚀 [PDF Generator] Attempting direct puppeteer.launch()...');
+    return await puppeteer.launch({
+      headless: true,
+      args: BROWSER_ARGS
+    });
+  } catch (defaultErr) {
+    console.warn('⚠️ Default puppeteer.launch() failed:', defaultErr.message);
+  }
+
+  // 4. Try @sparticuz/chromium for Linux containers
   if (process.platform === 'linux') {
     try {
       console.log('🚀 [PDF Generator] Attempting @sparticuz/chromium for Linux environment...');
@@ -72,7 +135,7 @@ const launchBrowser = async () => {
     }
   }
 
-  // 3. Try standard system binary paths on Windows, Mac, Linux
+  // 5. Try standard system binary paths on Windows, Mac, Linux
   const candidatePaths = [
     'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
     'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
@@ -83,7 +146,6 @@ const launchBrowser = async () => {
     '/usr/bin/chromium',
     '/usr/bin/chromium-browser',
     '/snap/bin/chromium',
-    '/opt/render/.cache/puppeteer/chrome/linux-133.0.6943.141/chrome-linux64/chrome',
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
   ];
 
@@ -100,32 +162,6 @@ const launchBrowser = async () => {
         console.warn(`⚠️ System path ${p} launch failed:`, err.message);
       }
     }
-  }
-
-  // 4. Try bundled Puppeteer executablePath
-  try {
-    const bundledPath = puppeteer.executablePath();
-    if (bundledPath && fs.existsSync(bundledPath)) {
-      console.log(`🚀 [PDF Generator] Launching Puppeteer bundled browser: ${bundledPath}`);
-      return await puppeteer.launch({
-        executablePath: bundledPath,
-        headless: true,
-        args: BROWSER_ARGS
-      });
-    }
-  } catch (bundledErr) {
-    console.warn('⚠️ Bundled puppeteer.executablePath() not found:', bundledErr.message);
-  }
-
-  // 5. Last-resort default launch
-  try {
-    console.log('🚀 [PDF Generator] Attempting default puppeteer.launch()...');
-    return await puppeteer.launch({
-      headless: true,
-      args: BROWSER_ARGS
-    });
-  } catch (defaultErr) {
-    console.warn('⚠️ Default puppeteer.launch() failed:', defaultErr.message);
   }
 
   return null;
@@ -2199,6 +2235,21 @@ const buildReportHTML = (group, monthStr, memberReports) => {
 `;
 };
 
+const findFontPath = (fontFileName) => {
+  const possiblePaths = [
+    path.resolve(__dirname, '..', 'assets', 'fonts', fontFileName),
+    path.resolve(__dirname, 'assets', 'fonts', fontFileName),
+    path.resolve(process.cwd(), 'server', 'assets', 'fonts', fontFileName),
+    path.resolve(process.cwd(), 'assets', 'fonts', fontFileName),
+    path.resolve('server', 'assets', 'fonts', fontFileName),
+    path.resolve('assets', 'fonts', fontFileName)
+  ];
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+};
+
 /**
  * Comprehensive Fallback PDF Generator using PDFKit
  * Generates a full multi-page formatted document (Page 1 = Summary/Leaderboard, Pages 2..N = Member Details)
@@ -2218,15 +2269,32 @@ const generatePDFKitReport = (group, monthStr, memberReports) => {
             )
           : 0;
 
+      const cleanGroupName = (group.name || 'Sankalp Group')
+        .replace(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+        .trim();
+
       const doc = new PDFDocument({
         size: 'A4',
         margin: 36,
         bufferPages: true,
         info: {
-          Title: `${group.name || 'Sankalp Group'} Monthly Report - ${monthStr}`,
+          Title: `${cleanGroupName} Monthly Report - ${monthStr}`,
           Author: 'Sankalp Habit Tracker'
         }
       });
+
+      const fontRegPath = findFontPath('NotoSansGujarati-Regular.ttf');
+      const fontBoldPath = findFontPath('NotoSansGujarati-Bold.ttf');
+
+      let hasGujaratiFont = false;
+      if (fontRegPath && fontBoldPath) {
+        doc.registerFont('Gujarati', fontRegPath);
+        doc.registerFont('Gujarati-Bold', fontBoldPath);
+        hasGujaratiFont = true;
+      }
+
+      const fontRegular = hasGujaratiFont ? 'Gujarati' : 'Helvetica';
+      const fontBold = hasGujaratiFont ? 'Gujarati-Bold' : 'Helvetica-Bold';
 
       const buffers = [];
       doc.on('data', (chunk) => buffers.push(chunk));
@@ -2237,54 +2305,54 @@ const generatePDFKitReport = (group, monthStr, memberReports) => {
       doc.rect(0, 0, doc.page.width, doc.page.height).fill('#ffffff');
 
       // Top Bar
-      doc.fillColor('#0f766e').fontSize(11).text('|| Jay Swaminarayan ||', 36, 30);
-      doc.fillColor('#64748b').fontSize(10).text(`${group.name || 'Sankalp Group'} • Monthly Report`, 200, 30, { align: 'right', width: 350 });
+      doc.font(fontBold).fillColor('#0f766e').fontSize(11).text('॥ જય સ્વામિનારાયણ ॥', 36, 30);
+      doc.font(fontRegular).fillColor('#64748b').fontSize(10).text(`${cleanGroupName} • માસિક અહેવાલ`, 200, 30, { align: 'right', width: 350 });
       doc.moveTo(36, 46).lineTo(559, 46).strokeColor('#0f766e').lineWidth(1.5).stroke();
 
       // Title Banner
-      doc.moveDown(1);
-      doc.fillColor('#134e4a').fontSize(20).text(group.name || 'Sankalp Group', { align: 'center' });
-      doc.fillColor('#0f766e').fontSize(12).text(`Monthly Performance Report — ${monthName} ${yearStr}`, { align: 'center' });
-      doc.moveDown(1);
+      doc.moveDown(0.8);
+      doc.font(fontBold).fillColor('#134e4a').fontSize(19).text(cleanGroupName, { align: 'center' });
+      doc.font(fontRegular).fillColor('#0f766e').fontSize(11).text(`માસિક પ્રગતિ અહેવાલ — ${monthName} ${yearStr}`, { align: 'center' });
+      doc.moveDown(0.8);
 
       // Summary Cards
       const cardY = 120;
       doc.roundedRect(36, cardY, 160, 50, 6).fillAndStroke('#f0fdf4', '#a7f3d0');
-      doc.fillColor('#166534').fontSize(9).text('TOTAL MEMBERS', 46, cardY + 10);
-      doc.fillColor('#14532d').fontSize(16).text(`${totalMembers}`, 46, cardY + 24);
+      doc.font(fontBold).fillColor('#166534').fontSize(8.5).text('કુલ સભ્યો', 46, cardY + 10);
+      doc.font(fontBold).fillColor('#14532d').fontSize(15).text(`${totalMembers} સભ્યો`, 46, cardY + 24);
 
       doc.roundedRect(210, cardY, 160, 50, 6).fillAndStroke('#f0fdfa', '#99f6e4');
-      doc.fillColor('#0f766e').fontSize(9).text('AVERAGE SUCCESS RATE', 220, cardY + 10);
-      doc.fillColor('#134e4a').fontSize(16).text(`${avgCompletion}%`, 220, cardY + 24);
+      doc.font(fontBold).fillColor('#0f766e').fontSize(8.5).text('સરેરાશ સફળતા દર', 220, cardY + 10);
+      doc.font(fontBold).fillColor('#134e4a').fontSize(15).text(`${avgCompletion}%`, 220, cardY + 24);
 
       doc.roundedRect(385, cardY, 174, 50, 6).fillAndStroke('#fefce8', '#fde047');
-      doc.fillColor('#854d0e').fontSize(9).text('MONTH / YEAR', 395, cardY + 10);
-      doc.fillColor('#713f12').fontSize(16).text(`${monthStr}`, 395, cardY + 24);
+      doc.font(fontBold).fillColor('#854d0e').fontSize(8.5).text('મહિનો / વર્ષ', 395, cardY + 10);
+      doc.font(fontBold).fillColor('#713f12').fontSize(15).text(`${monthName} ${yearStr}`, 395, cardY + 24);
 
       // Leaderboard Table Header
       const tableTop = 190;
-      doc.fillColor('#0f172a').fontSize(14).text('Monthly Leaderboard Rankings', 36, tableTop);
-      doc.fillColor('#64748b').fontSize(9).text('Members ranked by Discipline Score and completion rate', 36, tableTop + 16);
+      doc.font(fontBold).fillColor('#0f172a').fontSize(13).text('માસિક લીડરબોર્ડ રેન્કિંગ', 36, tableTop);
+      doc.font(fontRegular).fillColor('#64748b').fontSize(8.5).text('સભ્યોની માસિક નિયમ પાલન પ્રગતિ', 36, tableTop + 16);
 
-      const headerY = tableTop + 35;
+      const headerY = tableTop + 34;
       doc.rect(36, headerY, 523, 24).fill('#0f766e');
-      doc.fillColor('#ffffff').fontSize(10);
-      doc.text('Rank', 46, headerY + 7);
-      doc.text('Member Name', 110, headerY + 7);
-      doc.text('Score (Days)', 360, headerY + 7, { align: 'center', width: 90 });
-      doc.text('Success %', 470, headerY + 7, { align: 'center', width: 80 });
+      doc.font(fontBold).fillColor('#ffffff').fontSize(9.5);
+      doc.text('ક્રમ', 46, headerY + 7);
+      doc.text('સભ્યનું નામ', 110, headerY + 7);
+      doc.text('સ્કોર (દિવસ)', 360, headerY + 7, { align: 'center', width: 90 });
+      doc.text('સફળતા %', 470, headerY + 7, { align: 'center', width: 80 });
 
       let currentY = headerY + 24;
       memberReports.forEach((m, idx) => {
         const rowBg = idx % 2 === 1 ? '#f8fafc' : '#ffffff';
         doc.rect(36, currentY, 523, 24).fill(rowBg);
 
-        const rankBadge = idx === 0 ? '1 (Gold)' : idx === 1 ? '2 (Silver)' : idx === 2 ? '3 (Bronze)' : `${idx + 1}`;
-        doc.fillColor('#1e293b').fontSize(9);
+        const rankBadge = idx === 0 ? '1 (ગોલ્ડ)' : idx === 1 ? '2 (સિલ્વર)' : idx === 2 ? '3 (બ્રોન્ઝ)' : `${idx + 1}`;
+        doc.font(fontBold).fillColor('#1e293b').fontSize(8.5);
         doc.text(rankBadge, 46, currentY + 7);
-        doc.text(m.userProfile?.name || 'Unknown', 110, currentY + 7);
-        doc.text(`${m.overallStats?.disciplineScore || 0}d`, 360, currentY + 7, { align: 'center', width: 90 });
-        doc.text(`${m.overallStats?.overallCompletionRate || 0}%`, 470, currentY + 7, { align: 'center', width: 80 });
+        doc.font(fontRegular).text(m.userProfile?.name || 'Unknown', 110, currentY + 7);
+        doc.font(fontBold).text(`${m.overallStats?.disciplineScore || 0} દિવસ`, 360, currentY + 7, { align: 'center', width: 90 });
+        doc.font(fontBold).text(`${m.overallStats?.overallCompletionRate || 0}%`, 470, currentY + 7, { align: 'center', width: 80 });
 
         doc.moveTo(36, currentY + 24).lineTo(559, currentY + 24).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
         currentY += 24;
@@ -2292,13 +2360,13 @@ const generatePDFKitReport = (group, monthStr, memberReports) => {
 
       // Bottom Footer for Cover
       doc.moveTo(36, 780).lineTo(559, 780).strokeColor('#0f766e').lineWidth(1).stroke();
-      doc.fillColor('#64748b').fontSize(9).text('Jay Swaminarayan • Sankalp Habit Tracker', 36, 790);
-      doc.text('Page 1', 500, 790, { align: 'right' });
+      doc.font(fontRegular).fillColor('#64748b').fontSize(8.5).text('જય સ્વામિનારાયણ • સંકલ્પ હેબિટ ટ્રેકર', 36, 790);
+      doc.text('પેજ 1', 500, 790, { align: 'right' });
 
       // PAGES 2..N: INDIVIDUAL MEMBER REPORTS
       memberReports.forEach((report, idx) => {
         doc.addPage();
-        const memberName = report.userProfile?.name || 'Member';
+        const memberName = report.userProfile?.name || 'સભ્ય';
         const memberUsername = report.userProfile?.username ? `@${report.userProfile.username}` : '';
         const activeDays = report.activeDaysInMonth || 30;
         const disciplineScore = report.overallStats?.disciplineScore || 0;
@@ -2306,66 +2374,67 @@ const generatePDFKitReport = (group, monthStr, memberReports) => {
         const pageNum = idx + 2;
 
         // Top Header
-        doc.fillColor('#0f766e').fontSize(11).text('|| Jay Swaminarayan ||', 36, 30);
-        doc.fillColor('#64748b').fontSize(10).text(`${group.name || 'Sankalp Group'} • Page ${pageNum} of ${totalMembers + 1}`, 200, 30, { align: 'right', width: 350 });
+        doc.font(fontBold).fillColor('#0f766e').fontSize(11).text('॥ જય સ્વામિનારાયણ ॥', 36, 30);
+        doc.font(fontRegular).fillColor('#64748b').fontSize(9.5).text(`${cleanGroupName} • પેજ ${pageNum} / ${totalMembers + 1}`, 200, 30, { align: 'right', width: 350 });
         doc.moveTo(36, 46).lineTo(559, 46).strokeColor('#0f766e').lineWidth(1.5).stroke();
 
         // Member Header Card
-        const mCardY = 60;
+        const mCardY = 58;
         doc.roundedRect(36, mCardY, 523, 75, 8).fillAndStroke('#f8fafc', '#cbd5e1');
 
-        doc.fillColor('#0f172a').fontSize(16).text(memberName, 50, mCardY + 12);
+        doc.font(fontBold).fillColor('#0f172a').fontSize(15).text(memberName, 50, mCardY + 11);
         if (memberUsername) {
-          doc.fillColor('#64748b').fontSize(10).text(memberUsername, 50, mCardY + 34);
+          doc.font(fontRegular).fillColor('#64748b').fontSize(9.5).text(memberUsername, 50, mCardY + 31);
         }
-        doc.fillColor('#0f766e').fontSize(10).text(`Rank #${idx + 1}  •  Active Days: ${activeDays}d  •  Month: ${monthName} ${yearStr}`, 50, mCardY + 50);
+        doc.font(fontRegular).fillColor('#0f766e').fontSize(9).text(`રેન્ક #${idx + 1}  •  સક્રિય દિવસો: ${activeDays}d  •  મહિનો: ${monthName} ${yearStr}`, 50, mCardY + 48);
 
         // Member KPI Pills
-        doc.roundedRect(360, mCardY + 10, 85, 55, 6).fillAndStroke('#f0fdf4', '#86efac');
-        doc.fillColor('#166534').fontSize(8).text('DISCIPLINE', 365, mCardY + 18, { align: 'center', width: 75 });
-        doc.fillColor('#14532d').fontSize(14).text(`${disciplineScore}/${activeDays}`, 365, mCardY + 32, { align: 'center', width: 75 });
+        doc.roundedRect(355, mCardY + 10, 90, 55, 6).fillAndStroke('#f0fdf4', '#86efac');
+        doc.font(fontBold).fillColor('#166534').fontSize(7.5).text('નિયમ પાલન સ્કોર', 355, mCardY + 17, { align: 'center', width: 90 });
+        doc.font(fontBold).fillColor('#14532d').fontSize(13).text(`${disciplineScore}/${activeDays}`, 355, mCardY + 31, { align: 'center', width: 90 });
 
-        doc.roundedRect(455, mCardY + 10, 85, 55, 6).fillAndStroke('#f0fdfa', '#5eead4');
-        doc.fillColor('#115e59').fontSize(8).text('SUCCESS RATE', 460, mCardY + 18, { align: 'center', width: 75 });
-        doc.fillColor('#134e4a').fontSize(14).text(`${completionRate}%`, 460, mCardY + 32, { align: 'center', width: 75 });
+        doc.roundedRect(455, mCardY + 10, 90, 55, 6).fillAndStroke('#f0fdfa', '#5eead4');
+        doc.font(fontBold).fillColor('#115e59').fontSize(7.5).text('સફળતા દર', 455, mCardY + 17, { align: 'center', width: 90 });
+        doc.font(fontBold).fillColor('#134e4a').fontSize(13).text(`${completionRate}%`, 455, mCardY + 31, { align: 'center', width: 90 });
 
         // Habit Table
-        const hTableY = 155;
-        doc.fillColor('#0f172a').fontSize(13).text('Monthly Habit Compliance Breakdown', 36, hTableY);
+        const hTableY = 150;
+        doc.font(fontBold).fillColor('#0f172a').fontSize(12.5).text('ગ્રુપ નિયમ પ્રગતિ વિગત', 36, hTableY);
 
-        const hHeaderY = hTableY + 22;
+        const hHeaderY = hTableY + 20;
         doc.rect(36, hHeaderY, 523, 22).fill('#0f766e');
-        doc.fillColor('#ffffff').fontSize(9.5);
-        doc.text('Habit / Rule Name', 46, hHeaderY + 6);
-        doc.text('Progress / Active Days', 250, hHeaderY + 6);
-        doc.text('Daily Average', 390, hHeaderY + 6);
-        doc.text('Success %', 485, hHeaderY + 6);
+        doc.font(fontBold).fillColor('#ffffff').fontSize(9);
+        doc.text('નિયમનું નામ', 46, hHeaderY + 6);
+        doc.text('કુલ પ્રગતિ / દિવસો', 240, hHeaderY + 6);
+        doc.text('રોજિંદી સરેરાશ', 380, hHeaderY + 6);
+        doc.text('સફળતા %', 485, hHeaderY + 6);
 
         let hRowY = hHeaderY + 22;
         (report.habitSummaries || []).forEach((h, hIdx) => {
           const rowBg = hIdx % 2 === 1 ? '#f8fafc' : '#ffffff';
           doc.rect(36, hRowY, 523, 26).fill(rowBg);
 
-          let progressStr = `${h.completedDaysCount} / ${activeDays} days`;
+          let progressStr = `${h.completedDaysCount} / ${activeDays} દિવસ`;
           let avgStr = '-';
 
           if (h.type === 'count') {
-            progressStr = `${h.typeDetails?.totalCount || 0} ${h.targetUnit || ''} (${h.completedDaysCount}d)`;
-            avgStr = `${h.typeDetails?.dailyAverage || 0} ${h.targetUnit || ''}/day`;
+            const unit = h.targetUnit || '';
+            progressStr = `${h.typeDetails?.totalCount || 0} ${unit} (${h.completedDaysCount}d)`;
+            avgStr = `રોજ ${h.typeDetails?.dailyAverage || 0} ${unit}`;
           } else if (h.type === 'time_target') {
             const hrs = h.typeDetails?.totalHours || 0;
             const mins = h.typeDetails?.totalMinutes || 0;
-            progressStr = hrs >= 1 ? `${hrs} hrs (${h.completedDaysCount}d)` : `${mins} mins (${h.completedDaysCount}d)`;
-            avgStr = `${h.typeDetails?.dailyAverageMinutes || 0} mins/day`;
+            progressStr = hrs >= 1 ? `${hrs} કલાક (${h.completedDaysCount}d)` : `${mins} મિનિટ (${h.completedDaysCount}d)`;
+            avgStr = `રોજ ${h.typeDetails?.dailyAverageMinutes || 0} મિનિટ`;
           } else if (h.type === 'time_of_day') {
-            avgStr = `Avg: ${h.typeDetails?.averageTime || 'N/A'}`;
+            avgStr = `સરેરાશ: ${h.typeDetails?.averageTime || 'N/A'}`;
           }
 
-          doc.fillColor('#0f172a').fontSize(9).text(h.title, 46, hRowY + 7, { width: 195, lineBreak: false });
-          doc.fillColor('#334155').fontSize(9).text(progressStr, 250, hRowY + 7);
-          doc.fillColor('#475569').fontSize(9).text(avgStr, 390, hRowY + 7);
-          doc.fillColor(h.completionPercentage >= 80 ? '#166534' : h.completionPercentage >= 50 ? '#854d0e' : '#991b1b')
-            .fontSize(9.5)
+          doc.font(fontRegular).fillColor('#0f172a').fontSize(8.5).text(h.title, 46, hRowY + 7, { width: 190, lineBreak: false });
+          doc.fillColor('#334155').fontSize(8.5).text(progressStr, 240, hRowY + 7);
+          doc.fillColor('#475569').fontSize(8.5).text(avgStr, 380, hRowY + 7);
+          doc.font(fontBold).fillColor(h.completionPercentage >= 80 ? '#166534' : h.completionPercentage >= 50 ? '#854d0e' : '#991b1b')
+            .fontSize(9)
             .text(`${h.completionPercentage || 0}%`, 485, hRowY + 7);
 
           doc.moveTo(36, hRowY + 26).lineTo(559, hRowY + 26).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
@@ -2374,8 +2443,8 @@ const generatePDFKitReport = (group, monthStr, memberReports) => {
 
         // Footer
         doc.moveTo(36, 780).lineTo(559, 780).strokeColor('#0f766e').lineWidth(1).stroke();
-        doc.fillColor('#64748b').fontSize(9).text('Jay Swaminarayan • Sankalp Habit Tracker', 36, 790);
-        doc.text(`Page ${pageNum} of ${totalMembers + 1}`, 450, 790, { align: 'right', width: 100 });
+        doc.font(fontRegular).fillColor('#64748b').fontSize(8.5).text('જય સ્વામિનારાયણ • સંકલ્પ હેબિટ ટ્રેકર', 36, 790);
+        doc.text(`પેજ ${pageNum} / ${totalMembers + 1}`, 450, 790, { align: 'right', width: 100 });
       });
 
       doc.end();
