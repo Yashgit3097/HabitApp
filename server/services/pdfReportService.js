@@ -232,22 +232,22 @@ const buildReportHTML = (group, monthStr, memberReports) => {
       const barColor = comp >= 80 ? '#0f766e' : comp >= 50 ? '#d97706' : '#dc2626';
       const compClass = comp >= 80 ? 'high' : comp >= 50 ? 'mid' : 'low';
 
-      let prog = `<b>${h.completedDaysCount}</b>/${activeDays} દિ.`;
+      let prog = `<b>${h.completedDaysCount}</b> / ${activeDays} દિવસ`;
       let avg = '-';
       if (h.type === 'count') {
         const total = h.typeDetails?.totalCount || 0;
-        prog = `${total.toLocaleString()} ${h.targetUnit || ''}<br><small>(${h.completedDaysCount}/${activeDays}d)</small>`;
-        avg = `${h.typeDetails?.dailyAverage || 0} ${h.targetUnit || ''}/d`;
+        prog = `${total.toLocaleString()} ${h.targetUnit || ''}<br><small>(${h.completedDaysCount} / ${activeDays} દિ.)</small>`;
+        avg = `${h.typeDetails?.dailyAverage || 0} ${h.targetUnit || ''} / દિ.`;
       } else if (h.type === 'time_target') {
         const hrs = h.typeDetails?.totalHours || 0;
         const mins = h.typeDetails?.totalMinutes || 0;
-        prog = `${hrs >= 1 ? hrs + ' ક.' : mins + ' મ.'}<br><small>(${h.completedDaysCount}/${activeDays}d)</small>`;
-        avg = `${h.typeDetails?.dailyAverageMinutes || 0} મ./d`;
+        prog = `${hrs >= 1 ? hrs + ' કલાક' : mins + ' મિ.'}<br><small>(${h.completedDaysCount} / ${activeDays} દિ.)</small>`;
+        avg = `${h.typeDetails?.dailyAverageMinutes || 0} મિ. / દિ.`;
       } else if (h.type === 'time_of_day') {
         avg = `${h.typeDetails?.averageTime || 'N/A'}`;
       } else if (h.type === 'yes_no' || h.type === 'boolean') {
-        prog = `<b>${h.completedDaysCount}</b>/${activeDays}`;
-        avg = `${comp}% હા.`;
+        prog = `<b>${h.completedDaysCount}</b> / ${activeDays} દિવસ`;
+        avg = `${comp}% હા`;
       }
 
       return `
@@ -269,7 +269,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
         <div class="page-body">
           <div class="topbar">
             <div class="topbrand"><span class="topinvoc">॥ જય સ્વામિનારાયણ ॥</span> &bull; ${group.name || 'Sankalp Group'}</div>
-            <div class="toppage">પ. ${pageNum}/${totalPages}</div>
+            <div class="toppage">પૃ. ${pageNum} / ${totalPages}</div>
           </div>
 
           <div class="mcard">
@@ -284,17 +284,17 @@ const buildReportHTML = (group, monthStr, memberReports) => {
                 <div class="mcard-meta">
                   <span class="tag">${group.name || 'Sankalp'}</span>
                   <span class="tag"><span class="emoji-cell">&#128197;</span> ${monthName} ${yearStr}</span>
-                  <span class="tag tag-teal"><span class="emoji-cell">&#127919;</span> ${activeDays} દિ. સક્રિય</span>
+                  <span class="tag tag-teal"><span class="emoji-cell">&#127919;</span> ${activeDays} દિવસ સક્રિય</span>
                 </div>
               </div>
             </div>
             <div class="mcard-kpis">
               <div class="kpi kpi-green">
-                <div class="kpi-lbl">DISCIPLINE</div>
+                <div class="kpi-lbl">નિયમ સ્કોર</div>
                 <div class="kpi-val">${score}<span>/${activeDays}</span></div>
               </div>
               <div class="kpi kpi-teal">
-                <div class="kpi-lbl">સફળ. દર</div>
+                <div class="kpi-lbl">સફળતા દર</div>
                 <div class="kpi-val">${rate}%</div>
               </div>
             </div>
@@ -303,9 +303,9 @@ const buildReportHTML = (group, monthStr, memberReports) => {
           <div class="habit-sec">
             <div class="sec-hdr">
               <div class="sec-hdr-l">
-                <span>&#128203;</span>
+                <span class="emoji-cell">&#128203;</span>
                 <div>
-                  <div class="sec-title">ગ્રુપ નિયમ પ્રગ.</div>
+                  <div class="sec-title">ગ્રુપ નિયમ પ્રગતિ</div>
                   <div class="sec-sub">${name} — ${monthName} ${yearStr}</div>
                 </div>
               </div>
@@ -314,7 +314,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
             <div class="tbl-box">
               <table class="htbl">
                 <thead>
-                  <tr><th>નિયમ</th><th>કુ.પ./દિ.</th><th>સ.સ.</th><th>%</th></tr>
+                  <tr><th>નિયમ</th><th>કુલ પ્રગતિ</th><th>સ. સ.</th><th>%</th></tr>
                 </thead>
                 <tbody>${habitRows}</tbody>
               </table>
@@ -322,16 +322,16 @@ const buildReportHTML = (group, monthStr, memberReports) => {
           </div>
 
           <div class="insight">
-            <div class="ins-ico">&#10022;</div>
+            <div class="ins-ico"><span class="emoji-cell">&#10024;</span></div>
             <div>
-              <div class="ins-t">MONTHLY INSIGHT</div>
-              <div class="ins-d">${score} દિ. સંપૂ. નિ. &bull; સ.દ. ${rate}%</div>
+              <div class="ins-t">&#128200; માસિક પ્રગતિ સારાંશ</div>
+              <div class="ins-d">${score} દિવસ સંપૂર્ણ નિયમ &bull; સફળતા દર ${rate}%</div>
             </div>
           </div>
         </div>
         <div class="footer">
-          <div><span class="emoji-cell">&#127775;</span> <i>&#8220;નિ., ધ. અને સ.નું પ. એ ભ.ની સ. શો.&#8221;</i></div>
-          <div>જ. સ્. <span class="emoji-cell">&#128591;</span></div>
+          <div><span class="emoji-cell">&#127775;</span> <i>&#8220;નિયમ, ધ્યાન અને સ્વાધ્યાયનું પાલન એ ભગવાનની સાચી શોધ છે.&#8221;</i></div>
+          <div>જય સ્વામિનારાયણ <span class="emoji-cell">&#128591;</span></div>
         </div>
       </div>`;
   }).join('');
@@ -498,25 +498,25 @@ tr:last-child td{border-bottom:none}
     </div>
 
     <div class="topbar" style="margin-top:4px">
-      <div class="topbrand">${group.name || 'Sankalp Group'} &bull; માસ. અહ.</div>
-      <div class="toppage">પ. ૧/${memberReports.length + 1}</div>
+      <div class="topbrand">${group.name || 'Sankalp Group'} &bull; માસિક અહેવાલ</div>
+      <div class="toppage">પૃ. ૧ / ${memberReports.length + 1}</div>
     </div>
 
     <div class="hero">
       <div>
         <div class="hero-title">${group.name || 'Sankalp Group'}</div>
-        <div class="hero-sub">માસ. પ્ર. અહ. &amp; લીડ.</div>
+        <div class="hero-sub">માસિક પ્રગતિ અહેવાલ &amp; લીડરબોર્ડ</div>
       </div>
-      <div class="hero-date">&#128197; ${monthName} ${yearStr}</div>
+      <div class="hero-date"><span class="emoji-cell">&#128197;</span> ${monthName} ${yearStr}</div>
     </div>
 
     <div class="statgrid">
       <div class="statcard statcard-g">
-        <div class="stat-lbl">કુ. સ.</div>
-        <div class="stat-val">${totalMembers} સ.</div>
+        <div class="stat-lbl">કુલ સભ્યો</div>
+        <div class="stat-val">${totalMembers} સભ્ય</div>
       </div>
       <div class="statcard statcard-t">
-        <div class="stat-lbl">સ. સ. દ.</div>
+        <div class="stat-lbl">સ. સફળ. દર</div>
         <div class="stat-val">${avgCompletion}%</div>
       </div>
     </div>
@@ -526,22 +526,22 @@ tr:last-child td{border-bottom:none}
         <div class="sec-hdr-l">
           <span class="emoji-cell">&#127942;</span>
           <div>
-            <div class="sec-title">&#128293; માસ. લીડ. ક્ર.</div>
-            <div class="sec-sub">ગ.સ. ની નિ. • પ. • પ્ર.</div>
+            <div class="sec-title"><span class="emoji-cell">&#128293;</span> માસિક લીડરબોર્ડ ક્રમ</div>
+            <div class="sec-sub">ગ્રુપ સભ્યોની નિયમ પ્રગતિ</div>
           </div>
         </div>
         <div class="sec-month">${monthName} ${yearStr}</div>
       </div>
       <div class="tbl-box">
         <table>
-          <thead><tr><th>ક્ર.</th><th>સ. નામ</th><th style="text-align:center">સ્.(દ.)</th><th style="text-align:center">સ.%</th></tr></thead>
+          <thead><tr><th>ક્રમ</th><th>સભ્ય નામ</th><th style="text-align:center">સ્કોર (દિ.)</th><th style="text-align:center">સફળ. %</th></tr></thead>
           <tbody>${lbRows}</tbody>
         </table>
       </div>
     </div>
   </div>
   <div class="footer">
-    <div>જ. સ્. &bull; habitsankalp.netlify.app</div>
+    <div>જય સ્વામિનારાયણ &bull; habitsankalp.netlify.app</div>
     <div><span class="emoji-cell">&#128591;</span></div>
   </div>
 </div>
