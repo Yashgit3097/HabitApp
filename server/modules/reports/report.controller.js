@@ -677,3 +677,80 @@ export const getGroupMonthlySummary = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to fetch group summary', error: error.message });
   }
 };
+
+// @desc    Broadcast group monthly reports & leaderboard to Telegram
+// @route   POST /api/reports/group/:groupId/telegram
+// @access  Private (Admin / Member)
+export const broadcastGroupMonthlyReportsTelegram = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const currentUserId = (req.user.id || req.user._id).toString();
+
+    const group = await collections.groups.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const isMember = group.members && group.members.some((m) => (m.userId || '').toString() === currentUserId);
+    if (!isMember) {
+      return res.status(403).json({ success: false, message: 'Must be a group member to broadcast reports' });
+    }
+
+    const now = new Date();
+    const targetMonthStr = req.body.month || req.query.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    const { sendGroupReportsToTelegram } = await import('../../services/telegramService.js');
+    const result = await sendGroupReportsToTelegram(groupId, targetMonthStr);
+
+    if (!result.success) {
+      return res.status(400).json({ success: false, message: result.message || result.error || 'Failed to send Telegram reports' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Successfully broadcasted ${result.sentCount} reports to Telegram!`,
+      data: result
+    });
+  } catch (error) {
+    console.error('Broadcast Telegram Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to broadcast Telegram reports', error: error.message });
+  }
+};
+
+// @desc    Broadcast group daily pending tasks reminder to Telegram
+// @route   POST /api/reports/group/:groupId/telegram/reminders
+// @access  Private (Admin / Member)
+export const broadcastGroupDailyPendingRemindersTelegram = async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const currentUserId = (req.user.id || req.user._id).toString();
+
+    const group = await collections.groups.findById(groupId);
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'Group not found' });
+    }
+
+    const isMember = group.members && group.members.some((m) => (m.userId || '').toString() === currentUserId);
+    if (!isMember) {
+      return res.status(403).json({ success: false, message: 'Must be a group member to broadcast reminders' });
+    }
+
+    const dateStr = req.body.date || req.query.date || new Date().toISOString().split('T')[0];
+
+    const { sendDailyPendingRemindersTelegram } = await import('../../services/telegramService.js');
+    const result = await sendDailyPendingRemindersTelegram(groupId, dateStr);
+
+    if (!result.success) {
+      return res.status(400).json({ success: false, message: result.message || result.error || 'Failed to send Telegram reminder' });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Daily pending reminder sent to Telegram!',
+      data: result
+    });
+  } catch (error) {
+    console.error('Broadcast Pending Reminder Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to broadcast Telegram reminder', error: error.message });
+  }
+};

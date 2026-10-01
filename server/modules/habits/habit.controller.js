@@ -337,6 +337,15 @@ export const logHabit = async (req, res) => {
     // Recompute and persist updated all-time discipline score directly in database
     const updatedScore = await computeAndSaveUserDisciplineScore(userId);
 
+    // If logging a group habit for today, check for 100% completion compliment on Telegram
+    if (habit.groupId && isCompleted) {
+      import('../../services/telegramService.js')
+        .then(({ checkAndSendDailyCompliment }) => {
+          checkAndSendDailyCompliment(userId, habit.groupId, date);
+        })
+        .catch((err) => console.error('Compliment trigger error:', err.message));
+    }
+
     res.status(200).json({
       success: true,
       message: 'Habit progress logged',

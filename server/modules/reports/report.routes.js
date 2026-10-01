@@ -3,7 +3,9 @@ import {
   getDisciplineScore,
   getMonthlyReport,
   updateMonthlyReport,
-  getGroupMonthlySummary
+  getGroupMonthlySummary,
+  broadcastGroupMonthlyReportsTelegram,
+  broadcastGroupDailyPendingRemindersTelegram
 } from './report.controller.js';
 import { protect } from '../../middleware/authMiddleware.js';
 
@@ -15,5 +17,7 @@ router.get('/score', getDisciplineScore);
 router.get('/monthly', getMonthlyReport);
 router.put('/:id', updateMonthlyReport);
 router.get('/group/:groupId', getGroupMonthlySummary);
+router.post('/group/:groupId/telegram', broadcastGroupMonthlyReportsTelegram);
+router.post('/group/:groupId/telegram/reminders', broadcastGroupDailyPendingRemindersTelegram);
 
 export default router;

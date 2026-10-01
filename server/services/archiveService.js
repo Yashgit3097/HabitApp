@@ -1,4 +1,5 @@
 import { collections } from '../config/db.js';
+import { sendGroupReportsToTelegram, sendDailyPendingRemindersTelegram } from './telegramService.js';
 
 // Helper: parse HH:MM AM/PM to minutes from midnight
 const timeStringToMinutes = (timeStr) => {
@@ -268,7 +269,7 @@ const generateAndSaveReportDoc = async ({
 
 /**
  * Background Monthly Archival and Pruning Service
- * Runs on or after the 5th date of the month (day >= 5).
+ * Runs on or after the 1st date of the month (day >= 1).
  * Freezes & persists the previous month's reports (Personal + Group) in `monthly_reports`.
  * Only cleans up old daily logs after report verification, NEVER deleting current month data.
  */
@@ -282,9 +283,8 @@ export const runMonthlyArchiveAndCleanup = async () => {
 
     console.log(`📦 [Archive Service] Checking monthly archival status (Current Day: ${currentDay})...`);
 
-    // Condition: Only archive & cleanup after date 5 of the month
-    if (currentDay < 5) {
-      console.log(`ℹ️ [Archive Service] Today is day ${currentDay}. Archival for previous month runs on or after the 5th date.`);
+    // Condition: Run archival for previous month on or after date 1
+    if (currentDay < 1) {
       return;
     }
 
@@ -369,7 +369,18 @@ export const runMonthlyArchiveAndCleanup = async () => {
 
     console.log(`✅ [Archive Service] Finalized ${reportsGenerated} user & group reports for ${prevMonthStr}.`);
 
-    // 3. Clean up daily logs strictly from prior months that have completed reports
+    // 3. Broadcast finalized reports to Telegram Group
+    for (const group of allGroups) {
+      const groupId = (group.id || group._id).toString();
+      try {
+        console.log(`📢 [Archive Service] Broadcasting ${prevMonthStr} reports to Telegram for group: ${group.name}...`);
+        await sendGroupReportsToTelegram(groupId, prevMonthStr);
+      } catch (tgErr) {
+        console.error(`⚠️ Telegram broadcast failed for group ${group.name}:`, tgErr.message);
+      }
+    }
+
+    // 4. Clean up daily logs strictly from prior months that have completed reports
     let logsDeleted = 0;
     const oldLogs = allLogs.filter((l) => {
       if (!l.date) return false;
@@ -542,6 +553,49 @@ export const ensureCurrentMonthReportsGenerated = async (targetMonthOverride = n
 };
 
 /**
+ * Helper to get current Indian Standard Time (IST, UTC+5:30) Date object
+ */
+export const getISTDate = () => {
+  const now = new Date();
+  const utc = now.getTime() + now.getTimezoneOffset() * 60000;
+  return new Date(utc + 330 * 60000);
+};
+
+let lastPendingReminderDate = '';
+
+/**
+ * Check and broadcast daily pending habits list at midnight (00:01 AM of next date)
+ * Evaluates strictly the 24 hours of that day and posts the final pending/completed list.
+ */
+export const runDailyMidnightPendingCheck = async () => {
+  try {
+    const istNow = getISTDate();
+    const hours = istNow.getHours();
+    const minutes = istNow.getMinutes();
+
+    // Trigger at 00:00 - 00:05 AM (first minute of the next date)
+    if (hours === 0 && minutes <= 5) {
+      // Target date is yesterday (the date that just ended at midnight)
+      const yesterday = new Date(istNow.getTime() - 24 * 60 * 60 * 1000);
+      const yesterdayStr = `${yesterday.getFullYear()}-${String(yesterday.getMonth() + 1).padStart(2, '0')}-${String(yesterday.getDate()).padStart(2, '0')}`;
+
+      if (lastPendingReminderDate !== yesterdayStr) {
+        console.log(`⏰ [Archive Service] Triggering midnight final pending summary for date: ${yesterdayStr}...`);
+        lastPendingReminderDate = yesterdayStr;
+
+        const allGroups = await collections.groups.find();
+        for (const group of allGroups) {
+          const groupId = (group.id || group._id).toString();
+          await sendDailyPendingRemindersTelegram(groupId, yesterdayStr);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('❌ Error in daily midnight pending check:', error);
+  }
+};
+
+/**
  * Initialize background schedule
  */
 export const initArchiveScheduler = () => {
@@ -550,7 +604,7 @@ export const initArchiveScheduler = () => {
     ensureCurrentMonthReportsGenerated();
   }, 2000);
 
-  // 2. Run previous month archival on/after day 5 (after 10s)
+  // 2. Run previous month archival on/after day 1 (after 10s)
   setTimeout(() => {
     runMonthlyArchiveAndCleanup();
   }, 10000);
@@ -566,4 +620,10 @@ export const initArchiveScheduler = () => {
   setInterval(() => {
     runMonthlyArchiveAndCleanup();
   }, SIX_HOURS);
+
+  // 5. Check daily midnight pending reminder every 60 seconds
+  const ONE_MINUTE = 60 * 1000;
+  setInterval(() => {
+    runDailyMidnightPendingCheck();
+  }, ONE_MINUTE);
 };
