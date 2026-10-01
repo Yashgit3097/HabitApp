@@ -563,10 +563,21 @@ export const getGroupMonthlySummary = async (req, res) => {
       (l) => l.date && l.date.startsWith(targetMonthStr) && groupHabitIds.includes((l.habitId || '').toString())
     );
 
+    // Check if finalized/saved reports exist in monthlyReports collection for this group & month
+    const allMonthlyReports = await collections.monthlyReports.find();
+    const savedGroupReports = allMonthlyReports.filter(
+      (r) => (r.groupId || '').toString() === groupId.toString() && r.month === targetMonthStr
+    );
+
     // Compute metrics for each group member
     const memberReports = (group.members || []).map((m) => {
       const memberUserId = (m.userId || '').toString();
       const freshUser = allUsers.find((u) => (u.id || u._id)?.toString() === memberUserId);
+
+      // If past month with saved finalized report, use preserved static data
+      const savedMemberReport = savedGroupReports.find(
+        (r) => (r.userId || '').toString() === memberUserId
+      );
 
       const userCreatedAtStr = (freshUser?.createdAt || `${targetMonthStr}-01`).split('T')[0];
       let effectiveStartDay = 1;
@@ -575,7 +586,7 @@ export const getGroupMonthlySummary = async (req, res) => {
         effectiveStartDay = Math.max(1, isNaN(regDay) ? 1 : regDay);
       }
 
-      const activeDays = Math.max(1, maxDayToCount - effectiveStartDay + 1);
+      const activeDays = savedMemberReport?.activeDaysInMonth || Math.max(1, maxDayToCount - effectiveStartDay + 1);
 
       const memberLogs = relevantLogs.filter((l) => {
         if ((l.userId || '').toString() !== memberUserId || !l.date || !l.date.startsWith(targetMonthStr)) {
@@ -601,7 +612,7 @@ export const getGroupMonthlySummary = async (req, res) => {
 
         if (isDone && l.date) {
           if (!memberLogsByDate[l.date]) memberLogsByDate[l.date] = new Set();
-          memberLogsByDate[l.date].add((l.habitId || '').toString());
+          memberLogsByDate[l.date].add((log.habitId || '').toString());
         }
       });
 
@@ -616,9 +627,18 @@ export const getGroupMonthlySummary = async (req, res) => {
         }
       }
 
+      // If logs were pruned in previous month, fallback to savedReport stats
+      if (!isCurrentMonth && memberLogs.length === 0 && savedMemberReport) {
+        perfectDays = savedMemberReport.overallStats?.perfectDays || savedMemberReport.overallStats?.disciplineScore || 0;
+      }
+
       const totalExpectedTasks = groupHabits.length * activeDays;
-      const completionRate =
+      let completionRate =
         totalExpectedTasks > 0 ? Math.min(100, Math.round((completedLogs.length / totalExpectedTasks) * 100)) : 0;
+
+      if (!isCurrentMonth && memberLogs.length === 0 && savedMemberReport) {
+        completionRate = savedMemberReport.overallStats?.overallCompletionRate || 0;
+      }
 
       return {
         userId: memberUserId,
@@ -629,7 +649,7 @@ export const getGroupMonthlySummary = async (req, res) => {
         activeDays,
         perfectDays,
         disciplineScore: perfectDays,
-        completedTasksCount: completedLogs.length,
+        completedTasksCount: completedLogs.length || (savedMemberReport ? Math.round((completionRate * totalExpectedTasks) / 100) : 0),
         totalExpectedTasks,
         completionRate
       };

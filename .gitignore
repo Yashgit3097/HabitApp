@@ -23,6 +23,8 @@ dist-ssr/
 # Local Server Uploads & Data
 server/uploads/
 server/data/*.json
+backup/
+backups/
 
 # Logs
 logs/
