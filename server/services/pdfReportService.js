@@ -1,0 +1,2276 @@
+import fs from 'fs';
+import path from 'path';
+import puppeteer from 'puppeteer-core';
+import PDFDocument from 'pdfkit';
+
+const MONTH_NAMES = [
+  'જાન્યુઆરી',
+  'ફેબ્રુઆરી',
+  'માર્ચ',
+  'એપ્રિલ',
+  'મે',
+  'જૂન',
+  'જુલાઈ',
+  'ઓગસ્ટ',
+  'સપ્ટેમ્બર',
+  'ઓક્ટોબર',
+  'નવેમ્બર',
+  'ડિસેમ્બર'
+];
+
+/**
+ * Locate Chrome / Edge browser executable across Windows, Mac, and Linux (Render)
+ */
+const findChromeExecutable = () => {
+  if (
+    process.env.PUPPETEER_EXECUTABLE_PATH &&
+    fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)
+  ) {
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+
+  const possiblePaths = [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+  ];
+
+  for (const p of possiblePaths) {
+    if (fs.existsSync(p)) return p;
+  }
+
+  return null;
+};
+
+/**
+ * Optimize Cloudinary avatar URLs for fast, high-res circular embedding
+ */
+const optimizeAvatarUrl = (url, size = 120) => {
+  if (!url || typeof url !== 'string') return '';
+
+  if (
+    url.includes('res.cloudinary.com') &&
+    url.includes('/upload/')
+  ) {
+    return url.replace(
+      '/upload/',
+      `/upload/w_${size},h_${size},c_fill,g_face,q_auto,f_auto/`
+    );
+  }
+
+  return url;
+};
+
+/**
+ * Build HTML Template for Professional Multi-Page PDF
+ */
+const buildReportHTML = (group, monthStr, memberReports) => {
+  const [yearStr, monthNumStr] = (monthStr || '').split('-');
+  const monthNum = parseInt(monthNumStr, 10);
+  const monthName = MONTH_NAMES[monthNum - 1] || monthStr;
+
+  const totalMembers = memberReports.length;
+
+  const avgCompletion =
+    totalMembers > 0
+      ? Math.round(
+          memberReports.reduce(
+            (s, m) =>
+              s + (m.overallStats?.overallCompletionRate || 0),
+            0
+          ) / totalMembers
+        )
+      : 0;
+
+  const totalPerfectDays = memberReports.reduce(
+    (s, m) => s + (m.overallStats?.perfectDays || 0),
+    0
+  );
+
+  /**
+   * Leaderboard Rows
+   */
+  const leaderboardRowsHTML = memberReports
+    .map((m, idx) => {
+      const rank = idx + 1;
+
+      const medal =
+        rank === 1
+          ? '🥇 1'
+          : rank === 2
+          ? '🥈 2'
+          : rank === 3
+          ? '🥉 3'
+          : `${rank}`;
+
+      const medalClass =
+        rank === 1
+          ? 'rank-gold'
+          : rank === 2
+          ? 'rank-silver'
+          : rank === 3
+          ? 'rank-bronze'
+          : 'rank-normal';
+
+      const comp =
+        m.overallStats?.overallCompletionRate || 0;
+
+      const compClass =
+        comp >= 80
+          ? 'completion-high'
+          : comp >= 50
+          ? 'completion-medium'
+          : 'completion-low';
+
+      const avatarUrl = optimizeAvatarUrl(
+        m.userProfile?.avatar || '',
+        60
+      );
+
+      const initial = (
+        m.userProfile?.name || 'U'
+      )
+        .charAt(0)
+        .toUpperCase();
+
+      const avatarHTML = avatarUrl
+        ? `
+          <div class="avatar-circle-sm">
+            <img
+              src="${avatarUrl}"
+              class="avatar-img"
+              onerror="this.outerHTML='<span class=\\'avatar-letter-sm\\'>${initial}</span>'"
+            />
+          </div>
+        `
+        : `
+          <div class="avatar-circle-sm">
+            <span class="avatar-letter-sm">${initial}</span>
+          </div>
+        `;
+
+      return `
+        <tr class="leaderboard-row ${
+          idx % 2 === 1 ? 'row-alt' : ''
+        }">
+
+          <td class="leaderboard-rank ${medalClass}">
+            ${medal}
+          </td>
+
+          <td class="leaderboard-name">
+            <div class="member-name-wrap">
+              ${avatarHTML}
+
+              <div class="member-name-text">
+                ${m.userProfile?.name || 'Unknown'}
+              </div>
+            </div>
+          </td>
+
+          <td class="leaderboard-score">
+            <span class="score-number">
+              ${m.overallStats?.disciplineScore || 0}
+            </span>
+            <span class="score-label">
+              દિવસ
+            </span>
+          </td>
+
+          <td class="leaderboard-rate">
+            <span class="completion-badge ${compClass}">
+              ${comp}%
+            </span>
+          </td>
+
+        </tr>
+      `;
+    })
+    .join('');
+
+  /**
+   * Member Individual Pages
+   */
+  const memberPagesHTML = memberReports
+    .map((report, idx) => {
+      const memberName =
+        report.userProfile?.name || 'સભ્ય';
+
+      const memberUsername =
+        report.userProfile?.username
+          ? `@${report.userProfile.username}`
+          : '';
+
+      const activeDays =
+        report.activeDaysInMonth || 30;
+
+      const disciplineScore =
+        report.overallStats?.disciplineScore || 0;
+
+      const completionRate =
+        report.overallStats?.overallCompletionRate || 0;
+
+      const pageNum = idx + 2;
+
+      const totalPages =
+        memberReports.length + 1;
+
+      const userRank = idx + 1;
+
+      const avatarUrl = optimizeAvatarUrl(
+        report.userProfile?.avatar || '',
+        160
+      );
+
+      const initial = memberName
+        .charAt(0)
+        .toUpperCase();
+
+      const memberAvatarHTML = avatarUrl
+        ? `
+          <div class="avatar-circle-lg">
+            <img
+              src="${avatarUrl}"
+              class="avatar-img"
+              onerror="this.outerHTML='<span class=\\'avatar-letter-lg\\'>${initial}</span>'"
+            />
+          </div>
+        `
+        : `
+          <div class="avatar-circle-lg">
+            <span class="avatar-letter-lg">
+              ${initial}
+            </span>
+          </div>
+        `;
+
+      /**
+       * Habit Rows
+       */
+      const habitRowsHTML = (
+        report.habitSummaries || []
+      )
+        .map((h, hIdx) => {
+          let detailStr = `
+            <b>${h.completedDaysCount}</b>
+            / ${activeDays} દિવસ
+          `;
+
+          let avgStr = '-';
+
+          if (h.type === 'count') {
+            const total =
+              h.typeDetails?.totalCount || 0;
+
+            detailStr = `
+              <div class="habit-main-value">
+                ${total.toLocaleString()}
+                ${h.targetUnit || ''}
+              </div>
+
+              <div class="habit-sub-value">
+                (${h.completedDaysCount}/${activeDays} દિવસ)
+              </div>
+            `;
+
+            avgStr = `
+              રોજ
+              <b>
+                ${h.typeDetails?.dailyAverage || 0}
+              </b>
+              ${h.targetUnit || ''}
+            `;
+          } else if (h.type === 'time_target') {
+            const hrs =
+              h.typeDetails?.totalHours || 0;
+
+            const mins =
+              h.typeDetails?.totalMinutes || 0;
+
+            detailStr = `
+              <div class="habit-main-value">
+                ${
+                  hrs >= 1
+                    ? `${hrs} કલાક`
+                    : `${mins} મિનિટ`
+                }
+              </div>
+
+              <div class="habit-sub-value">
+                (${h.completedDaysCount}/${activeDays} દિવસ)
+              </div>
+            `;
+
+            avgStr = `
+              રોજ
+              <b>
+                ${h.typeDetails?.dailyAverageMinutes || 0}
+              </b>
+              મિનિટ
+            `;
+          } else if (h.type === 'time_of_day') {
+            avgStr = `
+              સરેરાશ
+              <b>
+                ${h.typeDetails?.averageTime || 'N/A'}
+              </b>
+            `;
+          } else if (
+            h.type === 'yes_no' ||
+            h.type === 'boolean'
+          ) {
+            detailStr = `
+              <div class="habit-main-value">
+                ${h.completedDaysCount}
+              </div>
+
+              <div class="habit-sub-value">
+                / ${activeDays} દિવસ
+              </div>
+            `;
+
+            avgStr = `
+              <b>
+                ${h.completionPercentage}%
+              </b>
+              હાજરી
+            `;
+          }
+
+          const comp =
+            h.completionPercentage || 0;
+
+          const barColor =
+            comp >= 80
+              ? '#0f766e'
+              : comp >= 50
+              ? '#d97706'
+              : '#dc2626';
+
+          const badgeClass =
+            comp >= 80
+              ? 'completion-high'
+              : comp >= 50
+              ? 'completion-medium'
+              : 'completion-low';
+
+          return `
+            <tr class="habit-row ${
+              hIdx % 2 === 1 ? 'row-alt' : ''
+            }">
+
+              <td class="habit-title-cell">
+                <div class="habit-title">
+                  ${h.title}
+                </div>
+              </td>
+
+              <td class="habit-progress-cell">
+                ${detailStr}
+              </td>
+
+              <td class="habit-average-cell">
+                ${avgStr}
+              </td>
+
+              <td class="habit-rate-cell">
+
+                <div class="progress-wrapper">
+
+                  <div class="progress-track">
+                    <div
+                      class="progress-fill"
+                      style="
+                        width: ${Math.min(
+                          Math.max(comp, 0),
+                          100
+                        )}%;
+                        background-color: ${barColor};
+                      "
+                    ></div>
+                  </div>
+
+                  <span class="completion-badge ${badgeClass}">
+                    ${comp}%
+                  </span>
+
+                </div>
+
+              </td>
+
+            </tr>
+          `;
+        })
+        .join('');
+
+      return `
+        <div class="page member-page">
+
+          <div class="page-body">
+
+            <!-- PAGE TOP BAR -->
+            <div class="page-top-bar">
+
+              <div class="top-brand">
+                <span class="invocation">
+                  ॥ જય સ્વામિનારાયણ ॥
+                </span>
+
+                <span class="top-divider">•</span>
+
+                <span>
+                  ${group.name || 'Sankalp Group'}
+                </span>
+              </div>
+
+              <div class="page-number">
+                પેજ ${pageNum} / ${totalPages}
+              </div>
+
+            </div>
+
+            <!-- MEMBER PROFILE -->
+            <div class="member-profile-card">
+
+              <div class="profile-left">
+
+                ${memberAvatarHTML}
+
+                <div class="profile-information">
+
+                  <div class="profile-name-row">
+
+                    <span class="member-name">
+                      ${memberName}
+                    </span>
+
+                    <span class="rank-pill">
+                      રેન્ક #${userRank}
+                    </span>
+
+                    ${
+                      memberUsername
+                        ? `
+                          <span class="username-pill">
+                            ${memberUsername}
+                          </span>
+                        `
+                        : ''
+                    }
+
+                  </div>
+
+                  <div class="profile-meta-row">
+
+                    <span class="meta-pill">
+                      <span class="meta-icon">●</span>
+                      ${group.name || 'Sankalp Group'}
+                    </span>
+
+                    <span class="meta-pill">
+                      <span class="meta-icon">📅</span>
+                      ${monthName} ${yearStr}
+                    </span>
+
+                    <span class="meta-pill meta-pill-teal">
+                      <span class="meta-icon">🎯</span>
+                      ${activeDays} દિવસ સક્રિય
+                    </span>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+              <div class="profile-kpis">
+
+                <div class="kpi-box kpi-green">
+
+                  <div class="kpi-label">
+                    DISCIPLINE SCORE
+                  </div>
+
+                  <div class="kpi-value">
+                    ${disciplineScore}
+                    <span>/${activeDays}</span>
+                  </div>
+
+                </div>
+
+                <div class="kpi-box kpi-teal">
+
+                  <div class="kpi-label">
+                    સફળતા દર
+                  </div>
+
+                  <div class="kpi-value">
+                    ${completionRate}%
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
+
+            <!-- HABIT SECTION -->
+            <div class="habit-section">
+
+              <div class="section-heading">
+
+                <div class="section-heading-left">
+                  <span class="section-icon">📋</span>
+
+                  <div>
+                    <div class="section-title">
+                      ગ્રુપ નિયમ પ્રગતિ વિગત
+                    </div>
+
+                    <div class="section-subtitle">
+                      ${memberName} ની માસિક નિયમ પાલન પ્રગતિ
+                    </div>
+                  </div>
+                </div>
+
+                <div class="section-month">
+                  ${monthName} ${yearStr}
+                </div>
+
+              </div>
+
+              <div class="table-container">
+
+                <table class="report-table">
+
+                  <thead>
+
+                    <tr class="table-head">
+
+                      <th class="col-habit-title">
+                        નિયમનું નામ
+                      </th>
+
+                      <th class="col-habit-progress">
+                        કુલ પ્રગતિ / દિવસો
+                      </th>
+
+                      <th class="col-habit-avg">
+                        રોજિંદી સરેરાશ
+                      </th>
+
+                      <th class="col-habit-rate">
+                        સફળતા %
+                      </th>
+
+                    </tr>
+
+                  </thead>
+
+                  <tbody>
+                    ${habitRowsHTML}
+                  </tbody>
+
+                </table>
+
+              </div>
+
+            </div>
+
+            <!-- MEMBER INSIGHT -->
+            <div class="member-insight">
+
+              <div class="insight-icon">
+                ✦
+              </div>
+
+              <div class="insight-content">
+
+                <div class="insight-title">
+                  માસિક પ્રગતિ
+                </div>
+
+                <div class="insight-text">
+                  આ મહિનામાં
+                  <strong>${disciplineScore}</strong>
+                  દિવસ સંપૂર્ણ નિયમ પાલન નોંધાયું છે.
+                  કુલ સફળતા દર
+                  <strong>${completionRate}%</strong>
+                  રહ્યો છે.
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+
+          <!-- FOOTER -->
+          <div class="page-bottom-bar">
+
+            <div class="footer-quote">
+              🌟
+              <i>
+                "નિયમ, ધર્મ અને સંકલ્પનું દ્રઢ પાલન એ જ ભક્તિની સાચી શોભા છે."
+              </i>
+            </div>
+
+            <div class="footer-right">
+              જય સ્વામિનારાયણ 🙏🏻
+            </div>
+
+          </div>
+
+        </div>
+      `;
+    })
+    .join('');
+
+  return `
+<!DOCTYPE html>
+
+<html lang="gu">
+
+<head>
+
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>
+    ${group.name || 'Sankalp Group'}
+    Monthly Report -
+    ${monthName} ${yearStr}
+  </title>
+
+  <link
+    rel="preconnect"
+    href="https://fonts.googleapis.com"
+  >
+
+  <link
+    rel="preconnect"
+    href="https://fonts.gstatic.com"
+    crossorigin
+  >
+
+  <link
+    href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gujarati:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap"
+    rel="stylesheet"
+  >
+
+  <style>
+
+    /* =========================================================
+       GLOBAL
+       ========================================================= */
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      width: 100%;
+      min-height: 100%;
+    }
+
+    body {
+      font-family:
+        'Noto Sans Gujarati',
+        'Plus Jakarta Sans',
+        -apple-system,
+        BlinkMacSystemFont,
+        'Segoe UI',
+        sans-serif;
+
+      background: #e2e8f0;
+
+      color: #0f172a;
+
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+
+      text-rendering: optimizeLegibility;
+    }
+
+    @page {
+      size: A4 portrait;
+      margin: 0;
+    }
+
+    /* =========================================================
+       PAGE
+       ========================================================= */
+
+    .page {
+      width: 210mm;
+      height: 297mm;
+      max-height: 297mm;
+
+      padding: 10mm 13mm 8mm 13mm;
+
+      background: #ffffff;
+
+      position: relative;
+
+      page-break-after: always;
+      page-break-inside: avoid;
+
+      display: flex;
+      flex-direction: column;
+
+      justify-content: space-between;
+
+      margin: 0 auto;
+
+      overflow: hidden;
+    }
+
+    .page:last-child {
+      page-break-after: avoid;
+    }
+
+    .page-body {
+      width: 100%;
+      flex: 1;
+
+      min-height: 0;
+    }
+
+    /* =========================================================
+       TOP BAR
+       ========================================================= */
+
+    .page-top-bar {
+      width: 100%;
+
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+
+      padding: 0 2px 7px 2px;
+
+      border-bottom: 1.8px solid #0f766e;
+
+      margin-bottom: 10px;
+    }
+
+    .top-brand {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+
+      font-size: 12px;
+      font-weight: 800;
+
+      color: #134e4a;
+    }
+
+    .invocation {
+      color: #0f766e;
+    }
+
+    .top-divider {
+      color: #94a3b8;
+    }
+
+    .page-number {
+      font-family:
+        'Plus Jakarta Sans',
+        sans-serif;
+
+      font-size: 10.5px;
+      font-weight: 800;
+
+      color: #64748b;
+
+      letter-spacing: 0.2px;
+    }
+
+    /* =========================================================
+       COVER / SUMMARY
+       ========================================================= */
+
+    .center-heading-banner {
+      text-align: center;
+
+      padding: 0 0 7px 0;
+
+      margin-bottom: 2px;
+    }
+
+    .divine-small {
+      font-size: 11px;
+      font-weight: 900;
+
+      color: #b45309;
+
+      letter-spacing: 1.8px;
+
+      margin-bottom: 2px;
+    }
+
+    .divine-main {
+      font-size: 22px;
+      line-height: 1.2;
+
+      font-weight: 900;
+
+      color: #134e4a;
+    }
+
+    /* =========================================================
+       HERO
+       ========================================================= */
+
+    .hero-banner-compact {
+      width: 100%;
+
+      background:
+        linear-gradient(
+          135deg,
+          #0f766e 0%,
+          #115e59 48%,
+          #134e4a 100%
+        );
+
+      color: #ffffff;
+
+      padding: 15px 19px;
+
+      border-radius: 10px;
+
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+
+      box-shadow:
+        0 5px 15px
+        rgba(15, 118, 110, 0.16);
+
+      position: relative;
+
+      overflow: hidden;
+    }
+
+    .hero-banner-compact::after {
+      content: '';
+
+      position: absolute;
+
+      width: 150px;
+      height: 150px;
+
+      border-radius: 50%;
+
+      right: -65px;
+      top: -90px;
+
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    .hero-left {
+      position: relative;
+      z-index: 1;
+    }
+
+    .hero-title {
+      font-size: 23px;
+      line-height: 1.25;
+
+      font-weight: 900;
+
+      letter-spacing: -0.4px;
+    }
+
+    .hero-subtitle {
+      font-size: 11.5px;
+
+      color: #ccfbf1;
+
+      font-weight: 600;
+
+      margin-top: 3px;
+    }
+
+    .hero-date {
+      position: relative;
+      z-index: 1;
+
+      background: rgba(4, 47, 46, 0.65);
+
+      border: 1px solid
+        rgba(153, 246, 228, 0.3);
+
+      padding: 7px 13px;
+
+      border-radius: 999px;
+
+      font-size: 11.5px;
+      font-weight: 900;
+
+      color: #ccfbf1;
+    }
+
+    /* =========================================================
+       SUMMARY CARDS
+       ========================================================= */
+
+    .summary-grid {
+      display: grid;
+
+      grid-template-columns:
+        repeat(2, 1fr);
+
+      gap: 10px;
+
+      margin-top: 10px;
+    }
+
+    .stat-card-compact {
+      min-height: 62px;
+
+      background: #ffffff;
+
+      border: 1px solid #cbd5e1;
+
+      border-radius: 9px;
+
+      padding: 9px 14px;
+
+      text-align: center;
+
+      box-shadow:
+        0 2px 7px
+        rgba(15, 23, 42, 0.04);
+    }
+
+    .stat-card-compact.green {
+      background: #f0fdf4;
+      border-color: #a7f3d0;
+    }
+
+    .stat-card-compact.teal {
+      background: #f0fdfa;
+      border-color: #99f6e4;
+    }
+
+    .stat-label {
+      font-size: 9.5px;
+
+      font-weight: 900;
+
+      letter-spacing: 0.5px;
+
+      color: #0f766e;
+    }
+
+    .stat-value {
+      margin-top: 3px;
+
+      font-size: 20px;
+
+      line-height: 1.15;
+
+      font-weight: 900;
+
+      color: #134e4a;
+    }
+
+    /* =========================================================
+       SECTION HEADING
+       ========================================================= */
+
+    .section-heading {
+      display: flex;
+
+      align-items: center;
+
+      justify-content: space-between;
+
+      margin-bottom: 7px;
+    }
+
+    .section-heading-left {
+      display: flex;
+
+      align-items: center;
+
+      gap: 9px;
+    }
+
+    .section-icon {
+      width: 29px;
+      height: 29px;
+
+      border-radius: 8px;
+
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      background: #ccfbf1;
+
+      border: 1px solid #99f6e4;
+
+      font-size: 15px;
+    }
+
+    .section-title {
+      font-size: 14px;
+
+      font-weight: 900;
+
+      color: #0f172a;
+
+      line-height: 1.2;
+    }
+
+    .section-subtitle {
+      margin-top: 2px;
+
+      font-size: 9px;
+
+      color: #64748b;
+
+      font-weight: 600;
+    }
+
+    .section-month {
+      font-size: 9.5px;
+
+      font-weight: 800;
+
+      color: #0f766e;
+
+      background: #f0fdfa;
+
+      border: 1px solid #99f6e4;
+
+      border-radius: 999px;
+
+      padding: 4px 9px;
+    }
+
+    /* =========================================================
+       TABLE
+       ========================================================= */
+
+    .table-container {
+      width: 100%;
+
+      border: 1px solid #94a3b8;
+
+      border-radius: 9px;
+
+      overflow: hidden;
+
+      background: #ffffff;
+
+      box-shadow:
+        0 2px 7px
+        rgba(15, 23, 42, 0.04);
+    }
+
+    .report-table {
+      width: 100%;
+
+      border-collapse: collapse;
+
+      table-layout: fixed;
+    }
+
+    .table-head {
+      background:
+        linear-gradient(
+          135deg,
+          #0f766e,
+          #115e59
+        );
+
+      color: #ffffff;
+
+      font-size: 10.5px;
+
+      font-weight: 900;
+
+      letter-spacing: 0.25px;
+    }
+
+    .table-head th {
+      padding: 8px 9px;
+
+      font-weight: 900;
+
+      text-align: center;
+
+      vertical-align: middle;
+
+      border-right:
+        1px solid
+        rgba(255, 255, 255, 0.13);
+
+      height: 35px;
+    }
+
+    .table-head th:last-child {
+      border-right: none;
+    }
+
+    /* =========================================================
+       LEADERBOARD
+       ========================================================= */
+
+    .leaderboard-section {
+      margin-top: 11px;
+    }
+
+    .leaderboard-row td {
+      height: 35px;
+
+      padding: 4px 8px;
+
+      border-bottom: 1px solid #e2e8f0;
+
+      text-align: center;
+
+      vertical-align: middle;
+    }
+
+    .leaderboard-row:last-child td {
+      border-bottom: none;
+    }
+
+    .row-alt {
+      background: #f8fafc;
+    }
+
+    .col-rank {
+      width: 14%;
+    }
+
+    .col-name {
+      width: 48%;
+    }
+
+    .col-score {
+      width: 22%;
+    }
+
+    .col-rate {
+      width: 16%;
+    }
+
+    .leaderboard-rank {
+      font-family:
+        'Plus Jakarta Sans',
+        sans-serif;
+
+      font-size: 11px;
+
+      font-weight: 900;
+    }
+
+    .rank-gold {
+      color: #b45309;
+      font-size: 12px;
+    }
+
+    .rank-silver {
+      color: #475569;
+      font-size: 12px;
+    }
+
+    .rank-bronze {
+      color: #92400e;
+      font-size: 12px;
+    }
+
+    .rank-normal {
+      color: #334155;
+    }
+
+    .member-name-wrap {
+      display: flex;
+
+      align-items: center;
+
+      justify-content: center;
+
+      gap: 8px;
+    }
+
+    .member-name-text {
+      font-size: 10.5px;
+
+      font-weight: 800;
+
+      color: #0f172a;
+
+      line-height: 1.25;
+
+      text-align: left;
+    }
+
+    .leaderboard-score {
+      font-family:
+        'Plus Jakarta Sans',
+        sans-serif;
+    }
+
+    .score-number {
+      font-size: 11px;
+
+      font-weight: 900;
+
+      color: #134e4a;
+    }
+
+    .score-label {
+      font-size: 8.5px;
+
+      color: #64748b;
+
+      font-weight: 700;
+    }
+
+    /* =========================================================
+       COMPLETION BADGES
+       ========================================================= */
+
+    .completion-badge {
+      display: inline-flex;
+
+      align-items: center;
+      justify-content: center;
+
+      min-width: 49px;
+
+      padding: 3px 8px;
+
+      border-radius: 999px;
+
+      font-family:
+        'Plus Jakarta Sans',
+        sans-serif;
+
+      font-size: 9.5px;
+
+      font-weight: 900;
+
+      border: 1px solid;
+    }
+
+    .completion-high {
+      color: #065f46;
+
+      background: #d1fae5;
+
+      border-color: #86efac;
+    }
+
+    .completion-medium {
+      color: #92400e;
+
+      background: #fef3c7;
+
+      border-color: #fcd34d;
+    }
+
+    .completion-low {
+      color: #991b1b;
+
+      background: #fee2e2;
+
+      border-color: #fca5a5;
+    }
+
+    /* =========================================================
+       AVATARS
+       ========================================================= */
+
+    .avatar-circle-sm {
+      width: 27px;
+      height: 27px;
+
+      min-width: 27px;
+
+      border-radius: 50%;
+
+      overflow: hidden;
+
+      border: 1.8px solid #0f766e;
+
+      display: inline-flex;
+
+      align-items: center;
+      justify-content: center;
+
+      background:
+        linear-gradient(
+          135deg,
+          #0f766e,
+          #115e59
+        );
+
+      flex-shrink: 0;
+    }
+
+    .avatar-circle-lg {
+      width: 66px;
+      height: 66px;
+
+      min-width: 66px;
+
+      border-radius: 50%;
+
+      overflow: hidden;
+
+      border: 2.5px solid #0f766e;
+
+      display: flex;
+
+      align-items: center;
+      justify-content: center;
+
+      background:
+        linear-gradient(
+          135deg,
+          #0f766e,
+          #115e59
+        );
+
+      flex-shrink: 0;
+
+      box-shadow:
+        0 4px 10px
+        rgba(15, 118, 110, 0.18);
+    }
+
+    .avatar-img {
+      width: 100%;
+      height: 100%;
+
+      object-fit: cover;
+
+      display: block;
+    }
+
+    .avatar-letter-sm {
+      color: #ffffff;
+
+      font-weight: 900;
+
+      font-size: 10px;
+    }
+
+    .avatar-letter-lg {
+      color: #ffffff;
+
+      font-weight: 900;
+
+      font-size: 24px;
+    }
+
+    /* =========================================================
+       MEMBER PROFILE
+       ========================================================= */
+
+    .member-profile-card {
+      width: 100%;
+
+      background:
+        linear-gradient(
+          135deg,
+          #f8fafc 0%,
+          #ffffff 100%
+        );
+
+      border: 1px solid #cbd5e1;
+
+      padding: 13px 15px;
+
+      border-radius: 11px;
+
+      display: flex;
+
+      justify-content: space-between;
+
+      align-items: center;
+
+      gap: 15px;
+
+      box-shadow:
+        0 3px 10px
+        rgba(15, 23, 42, 0.045);
+    }
+
+    .profile-left {
+      display: flex;
+
+      align-items: center;
+
+      gap: 13px;
+
+      min-width: 0;
+
+      flex: 1;
+    }
+
+    .profile-information {
+      min-width: 0;
+    }
+
+    .profile-name-row {
+      display: flex;
+
+      align-items: center;
+
+      flex-wrap: wrap;
+
+      gap: 6px;
+    }
+
+    .member-name {
+      font-size: 19px;
+
+      line-height: 1.25;
+
+      font-weight: 900;
+
+      color: #020617;
+    }
+
+    .rank-pill,
+    .username-pill {
+      display: inline-flex;
+
+      align-items: center;
+
+      border-radius: 999px;
+
+      padding: 3px 8px;
+
+      font-size: 8.5px;
+
+      font-weight: 900;
+    }
+
+    .rank-pill {
+      background: #134e4a;
+
+      color: #ccfbf1;
+
+      border: 1px solid #0f766e;
+    }
+
+    .username-pill {
+      background: #f1f5f9;
+
+      color: #475569;
+
+      border: 1px solid #cbd5e1;
+    }
+
+    .profile-meta-row {
+      display: flex;
+
+      align-items: center;
+
+      flex-wrap: wrap;
+
+      gap: 5px;
+
+      margin-top: 7px;
+    }
+
+    .meta-pill {
+      display: inline-flex;
+
+      align-items: center;
+
+      gap: 4px;
+
+      padding: 3px 7px;
+
+      border-radius: 5px;
+
+      background: #f8fafc;
+
+      border: 1px solid #dbe3ec;
+
+      color: #334155;
+
+      font-size: 8.5px;
+
+      font-weight: 800;
+    }
+
+    .meta-pill-teal {
+      color: #115e59;
+
+      background: #f0fdfa;
+
+      border-color: #99f6e4;
+    }
+
+    .meta-icon {
+      font-size: 8px;
+    }
+
+    /* =========================================================
+       KPI
+       ========================================================= */
+
+    .profile-kpis {
+      display: flex;
+
+      align-items: stretch;
+
+      gap: 7px;
+
+      flex-shrink: 0;
+    }
+
+    .kpi-box {
+      min-width: 94px;
+
+      padding: 8px 11px;
+
+      border-radius: 8px;
+
+      text-align: center;
+
+      border: 1.5px solid;
+    }
+
+    .kpi-green {
+      background: #f0fdf4;
+
+      border-color: #86efac;
+    }
+
+    .kpi-teal {
+      background: #f0fdfa;
+
+      border-color: #5eead4;
+    }
+
+    .kpi-label {
+      font-family:
+        'Plus Jakarta Sans',
+        sans-serif;
+
+      font-size: 7.5px;
+
+      letter-spacing: 0.4px;
+
+      font-weight: 900;
+
+      color: #166534;
+    }
+
+    .kpi-teal .kpi-label {
+      color: #115e59;
+    }
+
+    .kpi-value {
+      margin-top: 3px;
+
+      font-family:
+        'Plus Jakarta Sans',
+        sans-serif;
+
+      font-size: 17px;
+
+      line-height: 1;
+
+      font-weight: 900;
+
+      color: #14532d;
+    }
+
+    .kpi-teal .kpi-value {
+      color: #134e4a;
+    }
+
+    .kpi-value span {
+      font-size: 9px;
+
+      font-weight: 800;
+
+      opacity: 0.7;
+    }
+
+    /* =========================================================
+       HABIT SECTION
+       ========================================================= */
+
+    .habit-section {
+      margin-top: 13px;
+    }
+
+    .habit-row td {
+      height: 45px;
+
+      padding: 6px 9px;
+
+      border-bottom: 1px solid #e2e8f0;
+
+      text-align: center;
+
+      vertical-align: middle;
+    }
+
+    .habit-row:last-child td {
+      border-bottom: none;
+    }
+
+    .col-habit-title {
+      width: 33%;
+    }
+
+    .col-habit-progress {
+      width: 29%;
+    }
+
+    .col-habit-avg {
+      width: 18%;
+    }
+
+    .col-habit-rate {
+      width: 20%;
+    }
+
+    .habit-title {
+      font-size: 10.5px;
+
+      line-height: 1.35;
+
+      font-weight: 900;
+
+      color: #0f172a;
+    }
+
+    .habit-main-value {
+      font-size: 10.5px;
+
+      line-height: 1.2;
+
+      font-weight: 900;
+
+      color: #134e4a;
+    }
+
+    .habit-sub-value {
+      margin-top: 2px;
+
+      font-size: 8px;
+
+      color: #64748b;
+
+      font-weight: 600;
+    }
+
+    .habit-average-cell {
+      font-size: 9px;
+
+      line-height: 1.35;
+
+      color: #475569;
+
+      font-weight: 700;
+    }
+
+    .habit-average-cell b {
+      color: #0f172a;
+
+      font-weight: 900;
+    }
+
+    .progress-wrapper {
+      display: flex;
+
+      align-items: center;
+
+      justify-content: center;
+
+      gap: 7px;
+    }
+
+    .progress-track {
+      width: 67px;
+      height: 7px;
+
+      background: #e2e8f0;
+
+      border-radius: 999px;
+
+      overflow: hidden;
+
+      display: inline-block;
+    }
+
+    .progress-fill {
+      height: 100%;
+
+      border-radius: 999px;
+    }
+
+    /* =========================================================
+       MEMBER INSIGHT
+       ========================================================= */
+
+    .member-insight {
+      margin-top: 11px;
+
+      display: flex;
+
+      align-items: center;
+
+      gap: 9px;
+
+      padding: 8px 11px;
+
+      background:
+        linear-gradient(
+          135deg,
+          #f0fdfa,
+          #f8fafc
+        );
+
+      border: 1px solid #99f6e4;
+
+      border-radius: 8px;
+    }
+
+    .insight-icon {
+      width: 26px;
+      height: 26px;
+
+      min-width: 26px;
+
+      display: flex;
+
+      align-items: center;
+      justify-content: center;
+
+      border-radius: 7px;
+
+      background: #ccfbf1;
+
+      color: #0f766e;
+
+      font-size: 13px;
+    }
+
+    .insight-title {
+      font-size: 8px;
+
+      font-weight: 900;
+
+      color: #0f766e;
+
+      letter-spacing: 0.4px;
+
+      text-transform: uppercase;
+    }
+
+    .insight-text {
+      margin-top: 2px;
+
+      font-size: 8.5px;
+
+      line-height: 1.4;
+
+      color: #475569;
+
+      font-weight: 600;
+    }
+
+    .insight-text strong {
+      color: #134e4a;
+
+      font-weight: 900;
+    }
+
+    /* =========================================================
+       FOOTER
+       ========================================================= */
+
+    .page-bottom-bar {
+      width: 100%;
+
+      display: flex;
+
+      justify-content: space-between;
+
+      align-items: center;
+
+      gap: 15px;
+
+      padding-top: 7px;
+
+      border-top: 1px solid #cbd5e1;
+
+      margin-top: 7px;
+    }
+
+    .footer-quote {
+      font-size: 8.5px;
+
+      color: #475569;
+
+      font-weight: 700;
+
+      line-height: 1.3;
+    }
+
+    .footer-right {
+      white-space: nowrap;
+
+      font-size: 8.5px;
+
+      color: #0f766e;
+
+      font-weight: 900;
+    }
+
+    .cover-footer-left {
+      font-size: 8.5px;
+
+      color: #64748b;
+
+      font-weight: 800;
+    }
+
+    .cover-footer-right {
+      font-family:
+        'Plus Jakarta Sans',
+        sans-serif;
+
+      font-size: 8.5px;
+
+      color: #0f766e;
+
+      font-weight: 900;
+    }
+
+    /* =========================================================
+       COVER PAGE SPECIAL SPACING
+       ========================================================= */
+
+    .cover-page .page-body {
+      display: flex;
+
+      flex-direction: column;
+    }
+
+    .cover-page .leaderboard-section {
+      flex: 1;
+
+      min-height: 0;
+    }
+
+    /* =========================================================
+       PRINT
+       ========================================================= */
+
+    @media print {
+
+      html,
+      body {
+        background: #ffffff;
+      }
+
+      .page {
+        margin: 0;
+
+        box-shadow: none;
+
+        page-break-after: always;
+      }
+
+      .page:last-child {
+        page-break-after: avoid;
+      }
+    }
+
+  </style>
+
+</head>
+
+<body>
+
+  <!-- =========================================================
+       PAGE 1: GROUP SUMMARY & LEADERBOARD
+       ========================================================= -->
+
+  <div class="page cover-page">
+
+    <div class="page-body">
+
+      <!-- DIVINE HEADER -->
+
+      <div class="center-heading-banner">
+
+        <div class="divine-small">
+          ॥ શ્રી સ્વામિનારાયણો વિજયતે ॥
+        </div>
+
+        <div class="divine-main">
+          ॥ જય સ્વામિનારાયણ ॥
+        </div>
+
+      </div>
+
+      <!-- TOP BAR -->
+
+      <div class="page-top-bar">
+
+        <div class="top-brand">
+
+          <span>
+            ${group.name || 'Sankalp Group'}
+          </span>
+
+          <span class="top-divider">
+            •
+          </span>
+
+          <span>
+            માસિક પ્રગતિ અહેવાલ
+          </span>
+
+        </div>
+
+        <div class="page-number">
+          પેજ ૧ / ${memberReports.length + 1}
+        </div>
+
+      </div>
+
+      <!-- HERO -->
+
+      <div class="hero-banner-compact">
+
+        <div class="hero-left">
+
+          <div class="hero-title">
+            ${group.name || 'Sankalp Group 🙏🏻'}
+          </div>
+
+          <div class="hero-subtitle">
+            માસિક પ્રગતિ અહેવાલ અને લીડરબોર્ડ
+          </div>
+
+        </div>
+
+        <div class="hero-date">
+          📅 ${monthName} ${yearStr}
+        </div>
+
+      </div>
+
+      <!-- SUMMARY -->
+
+      <div class="summary-grid">
+
+        <div class="stat-card-compact green">
+
+          <div class="stat-label">
+            કુલ સભ્યો
+          </div>
+
+          <div class="stat-value">
+            ${totalMembers} સભ્યો
+          </div>
+
+        </div>
+
+        <div class="stat-card-compact teal">
+
+          <div class="stat-label">
+            સરેરાશ સફળતા દર
+          </div>
+
+          <div class="stat-value">
+            ${avgCompletion}%
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- LEADERBOARD -->
+
+      <div class="leaderboard-section">
+
+        <div class="section-heading">
+
+          <div class="section-heading-left">
+
+            <div class="section-icon">
+              🏆
+            </div>
+
+            <div>
+
+              <div class="section-title">
+                માસિક લીડરબોર્ડ રેન્કિંગ
+              </div>
+
+              <div class="section-subtitle">
+                ગ્રુપ સભ્યોની માસિક નિયમ પાલન પ્રગતિ
+              </div>
+
+            </div>
+
+          </div>
+
+          <div class="section-month">
+            ${monthName} ${yearStr}
+          </div>
+
+        </div>
+
+        <div class="table-container">
+
+          <table class="report-table">
+
+            <thead>
+
+              <tr class="table-head">
+
+                <th class="col-rank">
+                  ક્રમ
+                </th>
+
+                <th class="col-name">
+                  સભ્યનું નામ
+                </th>
+
+                <th class="col-score">
+                  સ્કોર
+                </th>
+
+                <th class="col-rate">
+                  સફળતા %
+                </th>
+
+              </tr>
+
+            </thead>
+
+            <tbody>
+
+              ${leaderboardRowsHTML}
+
+            </tbody>
+
+          </table>
+
+        </div>
+
+      </div>
+
+    </div>
+
+    <!-- FOOTER -->
+
+    <div class="page-bottom-bar">
+
+      <div class="cover-footer-left">
+        જય સ્વામિનારાયણ • સંકલ્પ હેબિટ ટ્રેકર
+      </div>
+
+      <div class="cover-footer-right">
+        https://habitsankalp.netlify.app
+      </div>
+
+    </div>
+
+  </div>
+
+  <!-- =========================================================
+       PAGES 2..N: INDIVIDUAL MEMBER PAGES
+       ========================================================= -->
+
+  ${memberPagesHTML}
+
+</body>
+
+</html>
+`;
+};
+
+/**
+ * Generate PDF using Chromium (Puppeteer-core)
+ * or fallback to PDFKit
+ */
+export const generateGroupMonthlyReportPDF = async (
+  group,
+  monthStr,
+  memberReports
+) => {
+  const chromePath = findChromeExecutable();
+
+  if (chromePath) {
+    try {
+      console.log(
+        `🚀 [PDF Generator] Launching headless browser (${chromePath})...`
+      );
+
+      const browser = await puppeteer.launch({
+        executablePath: chromePath,
+
+        headless: true,
+
+        args: [
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-accelerated-2d-canvas',
+          '--disable-gpu',
+          '--font-render-hinting=none'
+        ]
+      });
+
+      const page = await browser.newPage();
+
+      const htmlContent = buildReportHTML(
+        group,
+        monthStr,
+        memberReports
+      );
+
+      await page.setContent(htmlContent, {
+        waitUntil: 'networkidle0'
+      });
+
+      // Small pause to allow webfonts & images to settle
+      await new Promise((r) => setTimeout(r, 600));
+
+      /*
+       * Wait for images to finish loading.
+       * This does not change the report functionality.
+       */
+      await page.evaluate(async () => {
+        const images = Array.from(
+          document.images
+        );
+
+        await Promise.all(
+          images.map((img) => {
+            if (img.complete) {
+              return Promise.resolve();
+            }
+
+            return new Promise((resolve) => {
+              img.addEventListener(
+                'load',
+                resolve,
+                { once: true }
+              );
+
+              img.addEventListener(
+                'error',
+                resolve,
+                { once: true }
+              );
+            });
+          })
+        );
+      });
+
+      /*
+       * Make sure browser fonts are ready.
+       */
+      await page.evaluate(async () => {
+        if (document.fonts?.ready) {
+          await document.fonts.ready;
+        }
+      });
+
+      const pdfBuffer = await page.pdf({
+        format: 'A4',
+
+        printBackground: true,
+
+        margin: {
+          top: '0px',
+          right: '0px',
+          bottom: '0px',
+          left: '0px'
+        },
+
+        preferCSSPageSize: true
+      });
+
+      await browser.close();
+
+      console.log(
+        `✅ [PDF Generator] Created professional PDF (${pdfBuffer.length} bytes).`
+      );
+
+      return Buffer.from(pdfBuffer);
+
+    } catch (browserErr) {
+
+      console.error(
+        '❌ Chromium PDF generation error, falling back to PDFKit:',
+        browserErr.message
+      );
+    }
+  }
+
+  /*
+   * Fallback to basic PDFKit if Chromium is unavailable
+   */
+  return new Promise((resolve, reject) => {
+
+    const doc = new PDFDocument({
+      size: 'A4',
+      margin: 36
+    });
+
+    const buffers = [];
+
+    doc.on('data', (c) =>
+      buffers.push(c)
+    );
+
+    doc.on('end', () =>
+      resolve(Buffer.concat(buffers))
+    );
+
+    doc.on('error', (err) =>
+      reject(err)
+    );
+
+    doc
+      .fontSize(16)
+      .text(
+        `${group.name || 'Sankalp Group'} Monthly Report`,
+        {
+          align: 'center'
+        }
+      );
+
+    doc.end();
+  });
+};

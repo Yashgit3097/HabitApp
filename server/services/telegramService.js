@@ -1,10 +1,16 @@
 import { collections } from '../config/db.js';
+import { generateGroupMonthlyReportPDF } from './pdfReportService.js';
 
 // Cache to prevent duplicate compliments on the same day for the same user
 const sentComplimentsCache = new Set();
 
+const MONTH_NAMES = [
+  'જાન્યુઆરી', 'ફેબ્રુઆરી', 'માર્ચ', 'એપ્રિલ', 'મે', 'જૂન',
+  'જુલાઈ', 'ઓગસ્ટ', 'સપ્ટેમ્બર', 'ઓક્ટોબર', 'નવેમ્બર', 'ડિસેમ્બર'
+];
+
 /**
- * Send a message via Telegram Bot API
+ * Send a text message via Telegram Bot API
  */
 export const sendTelegramMessage = async (text, chatIdOverride = null, parseMode = 'HTML') => {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -42,52 +48,43 @@ export const sendTelegramMessage = async (text, chatIdOverride = null, parseMode
 };
 
 /**
- * Format a single member's Group Monthly Report into a Telegram HTML message
- * (Strictly only group habits, never personal ones)
+ * Send a document/PDF via Telegram Bot API
  */
-export const formatGroupMemberReportTelegram = (report, groupName = 'સંકલ્પ ગ્રુપ') => {
-  const { userProfile, month, overallStats, habitSummaries, activeDaysInMonth } = report;
-  const userName = userProfile?.name || 'સભ્ય';
-  const username = userProfile?.username ? `@${userProfile.username}` : '';
+export const sendTelegramDocument = async ({ buffer, filename, caption = '', chatIdOverride = null }) => {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = chatIdOverride || process.env.TELEGRAM_CHAT_ID;
 
-  const [yearStr, monthNumStr] = (month || '').split('-');
-  const monthNames = [
-    'જાન્યુઆરી', 'ફેબ્રુઆરી', 'માર્ચ', 'એપ્રિલ', 'મે', 'જૂન',
-    'જુલાઈ', 'ઓગસ્ટ', 'સપ્ટેમ્બર', 'ઓક્ટોબર', 'નવેમ્બર', 'ડિસેમ્બર'
-  ];
-  const monthName = monthNames[parseInt(monthNumStr, 10) - 1] || month;
+  if (!token || !chatId) {
+    console.warn('⚠️ Telegram bot token or chat ID is missing in .env. Skipping Telegram document.');
+    return { success: false, reason: 'Missing token or chat ID' };
+  }
 
-  let msg = `📊 <b>${groupName} - માસિક રિપોર્ટ (${monthName} ${yearStr})</b>\n`;
-  msg += `👤 <b>સભ્ય:</b> ${userName} ${username ? `(${username})` : ''}\n`;
-  msg += `🏆 <b>Discipline Score:</b> ${overallStats?.disciplineScore || 0} / ${activeDaysInMonth} દિવસ (૧૦૦% નિયમ પાલન)\n`;
-  msg += `📈 <b>ગ્રુપ સફળતા દર:</b> ${overallStats?.overallCompletionRate || 0}%\n\n`;
-  msg += `📝 <b>ગ્રુપ નિયમ વિગતવાર પ્રગતિ:</b>\n`;
+  try {
+    const formData = new FormData();
+    formData.append('chat_id', chatId);
+    formData.append('caption', caption);
+    formData.append('parse_mode', 'HTML');
 
-  (habitSummaries || []).forEach((h) => {
-    let details = '';
-    if (h.type === 'yes_no' || h.type === 'boolean') {
-      details = `<b>${h.completedDaysCount} / ${activeDaysInMonth} દિવસ</b> (${h.completionPercentage}%)`;
-    } else if (h.type === 'count') {
-      const total = h.typeDetails?.totalCount || 0;
-      const unit = h.targetUnit || '';
-      const avg = h.typeDetails?.dailyAverage || 0;
-      details = `<b>${total.toLocaleString()} ${unit}</b> (${h.completionPercentage}%, રોજ સરેરાશ ${avg})`;
-    } else if (h.type === 'time_target') {
-      const hrs = h.typeDetails?.totalHours || 0;
-      const mins = h.typeDetails?.totalMinutes || 0;
-      const timeStr = hrs >= 1 ? `${hrs} કલાક` : `${mins} મિનિટ`;
-      details = `<b>${timeStr}</b> (${h.completionPercentage}%, ${h.completedDaysCount}/${activeDaysInMonth} દિવસ)`;
-    } else if (h.type === 'time_of_day') {
-      details = `<b>${h.completedDaysCount} / ${activeDaysInMonth} દિવસ</b> (સરેરાશ ${h.typeDetails?.averageTime || 'N/A'})`;
-    } else {
-      details = `<b>${h.completedDaysCount} / ${activeDaysInMonth} દિવસ</b> (${h.completionPercentage}%)`;
+    const blob = new Blob([buffer], { type: 'application/pdf' });
+    formData.append('document', blob, filename || 'Monthly_Report.pdf');
+
+    const response = await fetch(`https://api.telegram.org/bot${token}/sendDocument`, {
+      method: 'POST',
+      body: formData
+    });
+
+    const data = await response.json();
+    if (!data.ok) {
+      console.error('❌ Telegram sendDocument error:', data.description);
+      return { success: false, error: data.description };
     }
 
-    msg += `• <b>${h.title}</b>: ${details}\n`;
-  });
-
-  msg += `\n🌟 <i>જય સ્વામિનારાયણ</i> 🙏🏻`;
-  return msg;
+    console.log(`✅ [Telegram] Successfully sent PDF document: ${filename}`);
+    return { success: true, messageId: data.result?.message_id };
+  } catch (error) {
+    console.error('❌ Failed to send Telegram document:', error.message);
+    return { success: false, error: error.message };
+  }
 };
 
 /**
@@ -95,11 +92,7 @@ export const formatGroupMemberReportTelegram = (report, groupName = 'સંક�
  */
 export const formatGroupLeaderboardTelegram = (groupName, month, memberReports) => {
   const [yearStr, monthNumStr] = (month || '').split('-');
-  const monthNames = [
-    'જાન્યુઆરી', 'ફેબ્રુઆરી', 'માર્ચ', 'એપ્રિલ', 'મે', 'જૂન',
-    'જુલાઈ', 'ઓગસ્ટ', 'સપ્ટેમ્બર', 'ઓક્ટોબર', 'નવેમ્બર', 'ડિસેમ્બર'
-  ];
-  const monthName = monthNames[parseInt(monthNumStr, 10) - 1] || month;
+  const monthName = MONTH_NAMES[parseInt(monthNumStr, 10) - 1] || month;
 
   let msg = `🏆 <b>${groupName || 'સંકલ્પ ગ્રુપ'} - માસિક લીડરબોર્ડ</b>\n`;
   msg += `📅 <b>મહિનો:</b> ${monthName} ${yearStr}\n`;
@@ -117,7 +110,7 @@ export const formatGroupLeaderboardTelegram = (groupName, month, memberReports) 
 };
 
 /**
- * Broadcast group monthly reports strictly (Only Group Habits, Never Personal)
+ * Broadcast group monthly reports as a PDF Book (Page 1 = Leaderboard/Summary, Pages 2..N = 1 page per member)
  */
 export const sendGroupReportsToTelegram = async (groupId, month, chatIdOverride = null) => {
   try {
@@ -142,31 +135,43 @@ export const sendGroupReportsToTelegram = async (groupId, month, chatIdOverride 
         (b.overallStats?.overallCompletionRate || 0) - (a.overallStats?.overallCompletionRate || 0)
     );
 
-    // 1. Send Leaderboard Summary
-    const leaderboardData = groupReports.map((r) => ({
-      name: r.userProfile?.name || 'Unknown',
-      username: r.userProfile?.username || '',
-      disciplineScore: r.overallStats?.disciplineScore || 0,
-      completionRate: r.overallStats?.overallCompletionRate || 0
-    }));
+    const [yearStr, monthNumStr] = (month || '').split('-');
+    const monthName = MONTH_NAMES[parseInt(monthNumStr, 10) - 1] || month;
 
-    const leaderboardMsg = formatGroupLeaderboardTelegram(group.name, month, leaderboardData);
-    await sendTelegramMessage(leaderboardMsg, chatIdOverride);
-    await new Promise((res) => setTimeout(res, 1500));
+    console.log(`📄 [PDF Generator] Generating monthly PDF report book for ${group.name} (${month})...`);
+    const pdfBuffer = await generateGroupMonthlyReportPDF(group, month, groupReports);
 
-    // 2. Send Individual Group Reports for each member
-    let sentCount = 0;
-    for (const report of groupReports) {
-      const reportMsg = formatGroupMemberReportTelegram(report, group.name);
-      await sendTelegramMessage(reportMsg, chatIdOverride);
-      sentCount++;
-      await new Promise((res) => setTimeout(res, 1200));
+    const filename = `${(group.name || 'Group').replace(/[^a-zA-Z0-9]/g, '_')}_Report_${month}.pdf`;
+    const caption = `📊 <b>${group.name} - માસિક પ્રગતિ અહેવાલ PDF (${monthName} ${yearStr})</b>\n\n` +
+      `📄 <b>આ PDF રિપોર્ટ બુકમાં સામેલ છે:</b>\n` +
+      `• <b>પેજ ૧:</b> ગ્રુપ સારાંશ અને માસિક લીડરબોર્ડ 🏆\n` +
+      `• <b>પેજ ૨ થી ${groupReports.length + 1}:</b> તમામ ૧૪ સભ્યોના વિગતવાર પર્સનલ રિપોર્ટ પેજ 📝\n\n` +
+      `✨ <i>જય સ્વામિનારાયણ</i> 🙏🏻`;
+
+    const sendRes = await sendTelegramDocument({
+      buffer: pdfBuffer,
+      filename,
+      caption,
+      chatIdOverride
+    });
+
+    if (sendRes.success) {
+      console.log(`✅ [Telegram] Broadcasted PDF Monthly Report Book to Telegram.`);
+      return { success: true, filename, totalPages: groupReports.length + 1 };
+    } else {
+      console.warn('⚠️ PDF send failed, falling back to text leaderboard:', sendRes.error);
+      const leaderboardData = groupReports.map((r) => ({
+        name: r.userProfile?.name || 'Unknown',
+        username: r.userProfile?.username || '',
+        disciplineScore: r.overallStats?.disciplineScore || 0,
+        completionRate: r.overallStats?.overallCompletionRate || 0
+      }));
+      const leaderboardMsg = formatGroupLeaderboardTelegram(group.name, month, leaderboardData);
+      await sendTelegramMessage(leaderboardMsg, chatIdOverride);
+      return { success: true, fallback: true };
     }
-
-    console.log(`✅ [Telegram] Broadcasted ${sentCount} group member reports to Telegram.`);
-    return { success: true, sentCount };
   } catch (error) {
-    console.error('❌ Error broadcasting group reports to Telegram:', error);
+    console.error('❌ Error broadcasting PDF report to Telegram:', error);
     return { success: false, error: error.message };
   }
 };
@@ -238,11 +243,11 @@ export const checkAndSendDailyCompliment = async (userId, groupId, dateStr = nul
 
 /**
  * Send Daily Pending Habits Reminder for the Group
- * Lists all members who still have incomplete group habits for today
+ * Lists all members who still have incomplete group habits for the evaluated date
  */
 export const sendDailyPendingRemindersTelegram = async (groupId, dateStr = null) => {
   try {
-    const todayStr = dateStr || new Date().toISOString().split('T')[0];
+    const targetDateStr = dateStr || new Date().toISOString().split('T')[0];
     const group = await collections.groups.findById(groupId);
     if (!group || !group.members || group.members.length === 0) return { success: false, message: 'Group not found' };
 
@@ -257,21 +262,20 @@ export const sendDailyPendingRemindersTelegram = async (groupId, dateStr = null)
     const groupHabitIds = groupHabits.map((h) => (h.id || h._id).toString());
 
     const allLogs = await collections.habitLogs.find();
-    const todayLogs = allLogs.filter((l) => l.date === todayStr);
+    const targetLogs = allLogs.filter((l) => l.date === targetDateStr);
 
     const pendingMembers = [];
     const completedMembers = [];
 
     for (const member of group.members) {
       const memberUserId = (member.userId || '').toString();
-      const memberLogs = todayLogs.filter((l) => (l.userId || '').toString() === memberUserId);
+      const memberLogs = targetLogs.filter((l) => (l.userId || '').toString() === memberUserId);
 
       const completedCount = groupHabitIds.filter((hId) =>
         memberLogs.some((l) => {
           const isDone =
             Boolean(l.isCompleted) ||
-            (typeof l.value === 'number' && l.value > 0) ||
-            (typeof l.value === 'string' && l.value.trim().length > 0);
+            (typeof l.value === 'number' && logValuePositive(l.value));
           return isDone && (l.habitId || '').toString() === hId;
         })
       ).length;
@@ -293,14 +297,14 @@ export const sendDailyPendingRemindersTelegram = async (groupId, dateStr = null)
       }
     }
 
-    // Format Reminder Message
-    const [year, month, day] = todayStr.split('-');
+    const [year, month, day] = targetDateStr.split('-');
     const dateFormatted = `${day}-${month}-${year}`;
 
     if (pendingMembers.length === 0) {
-      const allDoneMsg = `🎉 <b>અદભુત! આજના બધા જ સંકલ્પ પૂર્ણ!</b>\n\n` +
+      const allDoneMsg = `🎉 <b>અદભુત! આજના બધા જ સંકલ્પ ૧૦૦% પૂર્ણ!</b> 🌟\n\n` +
         `📅 <b>તારીખ:</b> ${dateFormatted}\n` +
-        `👥 <b>${group.name}</b> ના બધા જ ${group.members.length} સભ્યોએ આજના નિયમ ૧૦૦% પૂર્ણ કર્યા છે! 🌟\n\n` +
+        `👥 <b>${group.name}</b> ના બધા જ ${group.members.length} સભ્યોએ આજના તમામ ગ્રુપ નિયમ ૧૦૦% સફળતાપૂર્વક પૂર્ણ કર્યા છે! 👏🏻🎊\n\n` +
+        `🏆 <i>બધા જ હરિભક્તોને ખૂબ ખૂબ અભિનંદન! આવી જ રીતે નિયમિત નિયમ પાળતા રહો!</i>\n\n` +
         `✨ <i>જય સ્વામિનારાયણ</i> 🙏🏻`;
       await sendTelegramMessage(allDoneMsg);
       return { success: true, allDone: true };
@@ -323,10 +327,16 @@ export const sendDailyPendingRemindersTelegram = async (groupId, dateStr = null)
     msg += `\n💪 <i>ચાલો આપણે બધા સાથે મળીને નિયમિત નિયમ પાળીએ!</i> ✨`;
 
     await sendTelegramMessage(msg);
-    console.log(`📋 [Telegram] Broadcasted daily pending reminders (${pendingMembers.length} pending members).`);
+    console.log(`📋 [Telegram] Broadcasted daily pending reminder (${pendingMembers.length} pending members).`);
     return { success: true, pendingCount: pendingMembers.length };
   } catch (error) {
     console.error('❌ Error sending pending reminders to Telegram:', error);
     return { success: false, error: error.message };
   }
+};
+
+const logValuePositive = (val) => {
+  if (typeof val === 'number') return val > 0;
+  if (typeof val === 'string') return val.trim().length > 0;
+  return false;
 };
