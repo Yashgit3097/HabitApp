@@ -65,6 +65,44 @@ const findChromeInCache = (dir) => {
 };
 
 /**
+ * Embed local TTF fonts directly into HTML as base64
+ * Ensures 0ms font load and 100% offline rendering on Render with zero external network lag
+ */
+const getEmbeddedFontsCSS = () => {
+  try {
+    const regPath = findFontPath('NotoSansGujarati-Regular.ttf');
+    const boldPath = findFontPath('NotoSansGujarati-Bold.ttf');
+    let css = '';
+    if (regPath && fs.existsSync(regPath)) {
+      const regBase64 = fs.readFileSync(regPath).toString('base64');
+      css += `
+        @font-face {
+          font-family: 'Noto Sans Gujarati';
+          font-weight: 400;
+          font-style: normal;
+          src: url('data:font/truetype;charset=utf-8;base64,${regBase64}') format('truetype');
+        }
+      `;
+    }
+    if (boldPath && fs.existsSync(boldPath)) {
+      const boldBase64 = fs.readFileSync(boldPath).toString('base64');
+      css += `
+        @font-face {
+          font-family: 'Noto Sans Gujarati';
+          font-weight: 700;
+          font-style: normal;
+          src: url('data:font/truetype;charset=utf-8;base64,${boldBase64}') format('truetype');
+        }
+      `;
+    }
+    return css;
+  } catch (err) {
+    console.warn('⚠️ Could not inline font base64:', err.message);
+    return '';
+  }
+};
+
+/**
  * Intelligently Launch Chromium across Local OS, Render Containers, Docker, and Serverless
  */
 const launchBrowser = async () => {
@@ -82,7 +120,24 @@ const launchBrowser = async () => {
     }
   }
 
-  // 2. Search Render / Linux cache directories for installed Chrome
+  // 2. Try @sparticuz/chromium for Linux containers (Render, Lambda, Railway, etc.)
+  if (process.platform === 'linux') {
+    try {
+      console.log('🚀 [PDF Generator] Attempting @sparticuz/chromium for Linux environment...');
+      const sparticuzPath = await chromium.executablePath();
+      if (sparticuzPath) {
+        return await puppeteerCore.launch({
+          executablePath: sparticuzPath,
+          headless: true,
+          args: [...(chromium.args || []), ...BROWSER_ARGS]
+        });
+      }
+    } catch (sparticuzErr) {
+      console.warn('⚠️ @sparticuz/chromium launch failed:', sparticuzErr.message);
+    }
+  }
+
+  // 3. Search Render / Linux cache directories for installed Chrome
   const cacheDirs = [
     '/opt/render/.cache/puppeteer',
     path.join(process.env.HOME || '/root', '.cache', 'puppeteer'),
@@ -107,7 +162,7 @@ const launchBrowser = async () => {
     }
   }
 
-  // 3. Try bundled Puppeteer launch directly
+  // 4. Try bundled Puppeteer launch directly
   try {
     console.log('🚀 [PDF Generator] Attempting direct puppeteer.launch()...');
     return await puppeteer.launch({
@@ -116,23 +171,6 @@ const launchBrowser = async () => {
     });
   } catch (defaultErr) {
     console.warn('⚠️ Default puppeteer.launch() failed:', defaultErr.message);
-  }
-
-  // 4. Try @sparticuz/chromium for Linux containers
-  if (process.platform === 'linux') {
-    try {
-      console.log('🚀 [PDF Generator] Attempting @sparticuz/chromium for Linux environment...');
-      const sparticuzPath = await chromium.executablePath();
-      if (sparticuzPath) {
-        return await puppeteerCore.launch({
-          executablePath: sparticuzPath,
-          headless: chromium.headless || true,
-          args: [...(chromium.args || []), ...BROWSER_ARGS]
-        });
-      }
-    } catch (sparticuzErr) {
-      console.warn('⚠️ @sparticuz/chromium launch failed:', sparticuzErr.message);
-    }
   }
 
   // 5. Try standard system binary paths on Windows, Mac, Linux
@@ -788,6 +826,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
   >
 
   <style>
+    ${getEmbeddedFontsCSS()}
 
     /* =========================================================
        GLOBAL
