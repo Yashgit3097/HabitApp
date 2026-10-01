@@ -255,6 +255,32 @@ const optimizeAvatarUrl = (url, size = 120) => {
 };
 
 /**
+ * Vector SVG Icons for Bulletproof Cross-Platform Emojis
+ * Guarantees 100% crisp, colorful icons on Render Linux with zero missing emoji font issues
+ */
+const ICONS = {
+  trophy: `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" style="display:inline-block;vertical-align:middle"><path d="M7 4h10v5a5 5 0 01-10 0V4z" fill="#f59e0b"/><path d="M5 6H3a2 2 0 00-2 2v1a4 4 0 004 4h2V9H5V6zm14 0h2a2 2 0 012 2v1a4 4 0 01-4 4h-2V9h2V6z" fill="#fbbf24"/><path d="M10 16h4v3h-4z" fill="#d97706"/><path d="M8 19h8v2H8z" fill="#b45309"/></svg>`,
+  
+  calendar: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" style="display:inline-block;vertical-align:-1.5px;margin-right:3px"><rect x="3" y="4" width="18" height="18" rx="3" fill="#0f766e" stroke="#99f6e4" stroke-width="1.2"/><rect x="3" y="4" width="18" height="5" rx="2" fill="#115e59"/><circle cx="7.5" cy="13" r="1.2" fill="#ccfbf1"/><circle cx="12" cy="13" r="1.2" fill="#ccfbf1"/><circle cx="16.5" cy="13" r="1.2" fill="#ccfbf1"/><circle cx="7.5" cy="17.5" r="1.2" fill="#ccfbf1"/><circle cx="12" cy="17.5" r="1.2" fill="#ccfbf1"/><circle cx="16.5" cy="17.5" r="1.2" fill="#ccfbf1"/></svg>`,
+  
+  target: `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" style="display:inline-block;vertical-align:-1.5px;margin-right:3px"><circle cx="12" cy="12" r="9.5" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.2"/><circle cx="12" cy="12" r="6" fill="#0f766e"/><circle cx="12" cy="12" r="2.5" fill="#ffffff"/></svg>`,
+  
+  clipboard: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" style="display:inline-block;vertical-align:middle"><rect x="4" y="5" width="16" height="16" rx="2" fill="#ccfbf1" stroke="#0f766e" stroke-width="1.5"/><path d="M9 3h6a1 1 0 011 1v2H8V4a1 1 0 011-1z" fill="#0f766e"/><path d="M8 11h8M8 15h5" stroke="#0f766e" stroke-width="1.5" stroke-linecap="round"/></svg>`,
+  
+  star: `<svg viewBox="0 0 24 24" width="14" height="14" fill="#f59e0b" style="display:inline-block;vertical-align:-2px;margin-right:4px"><path d="M12 2l2.9 6.2 6.8.9-5 4.8 1.2 6.8-5.9-3.2-5.9 3.2 1.2-6.8-5-4.8 6.8-.9z"/></svg>`,
+  
+  prayingHands: `<svg viewBox="0 0 24 24" width="15" height="15" fill="none" style="display:inline-block;vertical-align:-2px;margin-left:4px"><path d="M10 4a1.5 1.5 0 013 0v10l-1.5 1.5L10 14V4z" fill="#fbbf24"/><path d="M6.5 7a1.5 1.5 0 013 0v8l-2 2-1-1V7z" fill="#f59e0b"/><path d="M14.5 7a1.5 1.5 0 013 0v8l-2 2-1-1V7z" fill="#f59e0b"/><path d="M12 21c-3 0-5-2-5-4l5-2 5 2c0 2-2 4-5 4z" fill="#d97706"/></svg>`,
+  
+  sparkle: `<svg viewBox="0 0 24 24" width="14" height="14" fill="#0f766e" style="display:inline-block;vertical-align:middle"><path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5Z"/></svg>`,
+  
+  goldMedal: `<span style="display:inline-flex;align-items:center;justify-content:center;gap:3px"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><circle cx="12" cy="12" r="10" fill="#f59e0b"/><circle cx="12" cy="12" r="7.5" fill="#fbbf24"/><path d="M12 5l1.5 3.5 3.8.4-2.8 2.6.7 3.8-3.2-1.8-3.2 1.8.7-3.8-2.8-2.6 3.8-.4z" fill="#b45309"/></svg> 1</span>`,
+  
+  silverMedal: `<span style="display:inline-flex;align-items:center;justify-content:center;gap:3px"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><circle cx="12" cy="12" r="10" fill="#64748b"/><circle cx="12" cy="12" r="7.5" fill="#94a3b8"/><path d="M12 5l1.5 3.5 3.8.4-2.8 2.6.7 3.8-3.2-1.8-3.2 1.8.7-3.8-2.8-2.6 3.8-.4z" fill="#334155"/></svg> 2</span>`,
+  
+  bronzeMedal: `<span style="display:inline-flex;align-items:center;justify-content:center;gap:3px"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:middle"><circle cx="12" cy="12" r="10" fill="#b45309"/><circle cx="12" cy="12" r="7.5" fill="#d97706"/><path d="M12 5l1.5 3.5 3.8.4-2.8 2.6.7 3.8-3.2-1.8-3.2 1.8.7-3.8-2.8-2.6 3.8-.4z" fill="#78350f"/></svg> 3</span>`
+};
+
+/**
  * Build HTML Template for Professional Multi-Page PDF
  * Matches exact format from reference PDF
  */
@@ -264,6 +290,10 @@ const buildReportHTML = (group, monthStr, memberReports) => {
   const monthName = MONTH_NAMES[monthNum - 1] || monthStr;
 
   const totalMembers = memberReports.length;
+
+  const cleanGroupName = (group.name || 'Sankalp Group')
+    .replace(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
+    .trim();
 
   const avgCompletion =
     totalMembers > 0
@@ -285,11 +315,11 @@ const buildReportHTML = (group, monthStr, memberReports) => {
 
       const medal =
         rank === 1
-          ? '🥇 1'
+          ? ICONS.goldMedal
           : rank === 2
-          ? '🥈 2'
+          ? ICONS.silverMedal
           : rank === 3
-          ? '🥉 3'
+          ? ICONS.bronzeMedal
           : `${rank}`;
 
       const medalClass =
@@ -653,16 +683,16 @@ const buildReportHTML = (group, monthStr, memberReports) => {
 
                     <span class="meta-pill">
                       <span class="meta-icon">●</span>
-                      ${group.name || 'Sankalp Group'}
+                      ${cleanGroupName}
                     </span>
 
                     <span class="meta-pill">
-                      <span class="meta-icon">📅</span>
+                      <span class="meta-icon">${ICONS.calendar}</span>
                       ${monthName} ${yearStr}
                     </span>
 
                     <span class="meta-pill meta-pill-teal">
-                      <span class="meta-icon">🎯</span>
+                      <span class="meta-icon">${ICONS.target}</span>
                       ${activeDays} દિવસ સક્રિય
                     </span>
 
@@ -709,7 +739,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
               <div class="section-heading">
 
                 <div class="section-heading-left">
-                  <span class="section-icon">📋</span>
+                  <span class="section-icon">${ICONS.clipboard}</span>
 
                   <div>
                     <div class="section-title">
@@ -770,7 +800,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
             <div class="member-insight">
 
               <div class="insight-icon">
-                ✦
+                ${ICONS.sparkle}
               </div>
 
               <div class="insight-content">
@@ -798,14 +828,14 @@ const buildReportHTML = (group, monthStr, memberReports) => {
           <div class="page-bottom-bar">
 
             <div class="footer-quote">
-              🌟
+              ${ICONS.star}
               <i>
                 "નિયમ, ધર્મ અને સંકલ્પનું દ્રઢ પાલન એ જ ભક્તિની સાચી શોભા છે."
               </i>
             </div>
 
             <div class="footer-right">
-              જય સ્વામિનારાયણ 🙏🏻
+              જય સ્વામિનારાયણ ${ICONS.prayingHands}
             </div>
 
           </div>
@@ -2140,7 +2170,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
         <div class="hero-left">
 
           <div class="hero-title">
-            ${group.name || 'Sankalp Group 🙏🏻'}
+            ${cleanGroupName} ${ICONS.prayingHands}
           </div>
 
           <div class="hero-subtitle">
@@ -2150,7 +2180,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
         </div>
 
         <div class="hero-date">
-          📅 ${monthName} ${yearStr}
+          ${ICONS.calendar} ${monthName} ${yearStr}
         </div>
 
       </div>
@@ -2194,7 +2224,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
           <div class="section-heading-left">
 
             <div class="section-icon">
-              🏆
+              ${ICONS.trophy}
             </div>
 
             <div>
