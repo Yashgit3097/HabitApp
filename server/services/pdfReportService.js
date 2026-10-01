@@ -333,30 +333,29 @@ const ICONS = {
 const formatHTMLTextWithSvgIcons = (str) => {
   if (!str || typeof str !== 'string') return '';
   return str
-    // Praying hands with all skin tones (🙏🏻, 🙏🏼, 🙏🏽, 🙏🏾, 🙏🏿, 🙏)
-    .replace(/(?:\u{1F64F}[\u{1F3FB}-\u{1F3FF}]?|\u{1F64C}|\u{1F91D})/gu, ICONS.prayingHands)
-    // Trophies, crowns, medals
-    .replace(/\u{1F3C6}/gu, ICONS.trophy)
-    .replace(/\u{1F451}/gu, ICONS.crown)
-    .replace(/\u{1F947}/gu, ICONS.goldMedal)
-    .replace(/\u{1F948}/gu, ICONS.silverMedal)
-    .replace(/\u{1F949}/gu, ICONS.bronzeMedal)
-    // Sparkles, stars, shields
-    .replace(/(?:\u{2728}|\u2728)/gu, ICONS.sparkle)
-    .replace(/(?:\u{1F31F}|\u{2B50}|\u2B50)/gu, ICONS.star)
-    .replace(/(?:\u{1F6E1}\uFE0F?|\u{1F6E1})/gu, ICONS.shield)
-    // Fire, hearts
-    .replace(/\u{1F525}/gu, ICONS.fire)
-    .replace(/(?:\u{2764}\uFE0F?|\u{1F496}|\u{1F497}|\u{1F90D}|\u{1F90E}|\u{1F9E1})/gu, ICONS.heart)
-    // Target, books, beads, flowers, check
-    .replace(/\u{1F3AF}/gu, ICONS.target)
-    .replace(/(?:\u{1F4D6}|\u{1F4D5}|\u{1F4D8}|\u{1F4DA})/gu, ICONS.book)
-    .replace(/\u{1F4FF}/gu, ICONS.rosary)
-    .replace(/(?:\u{1F338}|\u{1F33A}|\u{1F33C}|\u{1F337}|\u{1F33F})/gu, ICONS.flower)
-    .replace(/(?:\u{2705}|\u{2714}\uFE0F?)/gu, ICONS.check)
-    // Strip any remaining exotic emojis/skin-tones/variation selectors that cannot render natively
-    .replace(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '')
-    .replace(/[\u{1F3FB}-\u{1F3FF}\uFE00-\uFE0F\u200D\u200C]/gu, '')
+    // 1. Praying hands with any skin tones, variation selectors, or ZWJ (🙏🏻, 🙏🏼, 🙏🏽, 🙏🏾, 🙏🏿, 🙏, 🙌, 🤝)
+    .replace(/(?:(?:\u{1F64F}|\uD83D\uDE4F|\u{1F64C}|\uD83D\uDE4C|\u{1F91D}|\uD83E\uDD1D)(?:[\uFE00-\uFE0F\u200D]|\uD83C[\uDFFB-\uDFFF]|[\u{1F3FB}-\u{1F3FF}])?)/gu, ICONS.prayingHands)
+    // 2. Trophies, crowns, medals
+    .replace(/(?:\u{1F3C6}|\uD83C\uDFC6)/gu, ICONS.trophy)
+    .replace(/(?:\u{1F451}|\uD83D\uDC51)/gu, ICONS.crown)
+    .replace(/(?:\u{1F947}|\uD83E\uDD47)/gu, ICONS.goldMedal)
+    .replace(/(?:\u{1F948}|\uD83E\uDD48)/gu, ICONS.silverMedal)
+    .replace(/(?:\u{1F949}|\uD83E\uDD49)/gu, ICONS.bronzeMedal)
+    // 3. Sparkles, stars, shields
+    .replace(/(?:\u{2728}|\u2728|\u{1F31F}|\uD83C\uDF1F)/gu, ICONS.sparkle)
+    .replace(/(?:\u{2B50}|\u2B50|\u{2605}|\u2605)/gu, ICONS.star)
+    .replace(/(?:(?:\u{1F6E1}|\uD83D\uDEE1)(?:[\uFE00-\uFE0F])?)/gu, ICONS.shield)
+    // 4. Fire, hearts
+    .replace(/(?:\u{1F525}|\uD83D\uDD25)/gu, ICONS.fire)
+    .replace(/(?:(?:\u{2764}|\u2764|\u{1F496}|\u{1F497}|\u{1F90D}|\u{1F90E}|\u{1F9E1}|\uD83D\uDC96|\uD83D\uDC97|\uD83E\uDD0D|\uD83E\uDD0E|\uD83E\uDDE1)(?:[\uFE00-\uFE0F])?)/gu, ICONS.heart)
+    // 5. Target, books, beads, flowers, check
+    .replace(/(?:\u{1F3AF}|\uD83C\uDFAF)/gu, ICONS.target)
+    .replace(/(?:\u{1F4D6}|\u{1F4D5}|\u{1F4D8}|\u{1F4DA}|\uD83D\uDCD6|\uD83D\uDCD5|\uD83D\uDCD8|\uD83D\uDCDA)/gu, ICONS.book)
+    .replace(/(?:\u{1F4FF}|\uD83D\uDCFF)/gu, ICONS.rosary)
+    .replace(/(?:\u{1F338}|\u{1F33A}|\u{1F33C}|\u{1F337}|\u{1F33F}|\uD83C\uDF38|\uD83C\uDF3A|\uD83C\uDF3C|\uD83C\uDF37|\uD83C\uDF3F)/gu, ICONS.flower)
+    .replace(/(?:\u{2705}|\u2705|(?:\u{2714}|\u2714)(?:[\uFE00-\uFE0F])?)/gu, ICONS.check)
+    // 6. Strip ALL remaining astral emojis, surrogate pairs, skin tones, and variation selectors
+    .replace(/(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u{1F000}-\u{1FAFF}]|[\u{1F300}-\u{1F6FF}]|[\u{2600}-\u{27BF}]|[\uFE00-\uFE0F\u200D\u200C]|[\u{1F3FB}-\u{1F3FF}])/gu, '')
     .trim();
 };
 
@@ -366,8 +365,7 @@ const formatHTMLTextWithSvgIcons = (str) => {
 const cleanTextForPDFKit = (text) => {
   if (!text || typeof text !== 'string') return '';
   return text
-    .replace(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{27BF}\u{1F000}-\u{1F2FF}\u{1F600}-\u{1F64F}\u{1F680}-\u{1F6FF}\u{1F1E0}-\u{1F1FF}]/gu, '')
-    .replace(/[\u{1F3FB}-\u{1F3FF}\uFE00-\uFE0F\u200D\u200C]/gu, '')
+    .replace(/(?:[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u{1F000}-\u{1FAFF}]|[\u{1F300}-\u{1F6FF}]|[\u{2600}-\u{27BF}]|[\uFE00-\uFE0F\u200D\u200C]|[\u{1F3FB}-\u{1F3FF}])/gu, '')
     .trim();
 };
 
@@ -1098,6 +1096,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
 
     .page-number {
       font-family:
+        'Noto Sans Gujarati',
         'Plus Jakarta Sans',
         sans-serif;
 
@@ -1485,6 +1484,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
 
     .leaderboard-rank {
       font-family:
+        'Noto Sans Gujarati',
         'Plus Jakarta Sans',
         sans-serif;
 
@@ -1536,6 +1536,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
 
     .leaderboard-score {
       font-family:
+        'Noto Sans Gujarati',
         'Plus Jakarta Sans',
         sans-serif;
     }
@@ -1573,6 +1574,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
       border-radius: 999px;
 
       font-family:
+        'Noto Sans Gujarati',
         'Plus Jakarta Sans',
         sans-serif;
 
@@ -1880,6 +1882,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
 
     .kpi-label {
       font-family:
+        'Noto Sans Gujarati',
         'Plus Jakarta Sans',
         sans-serif;
 
@@ -1900,6 +1903,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
       margin-top: 3px;
 
       font-family:
+        'Noto Sans Gujarati',
         'Plus Jakarta Sans',
         sans-serif;
 
@@ -2168,6 +2172,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
 
     .cover-footer-right {
       font-family:
+        'Noto Sans Gujarati',
         'Plus Jakarta Sans',
         sans-serif;
 
@@ -2253,7 +2258,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
         <div class="top-brand">
 
           <span>
-            ${group.name || 'Sankalp Group'}
+            ${cleanGroupName}
           </span>
 
           <span class="top-divider">
@@ -2279,7 +2284,7 @@ const buildReportHTML = (group, monthStr, memberReports) => {
         <div class="hero-left">
 
           <div class="hero-title">
-            ${cleanGroupName} ${ICONS.prayingHands}
+            ${cleanGroupName.includes('<svg') ? cleanGroupName : `${cleanGroupName} ${ICONS.prayingHands}`}
           </div>
 
           <div class="hero-subtitle">
