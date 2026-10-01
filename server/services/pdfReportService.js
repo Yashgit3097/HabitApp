@@ -10,2272 +10,22 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const MONTH_NAMES = [
-  'જાન્યુઆરી',
-  'ફેબ્રુઆરી',
-  'માર્ચ',
-  'એપ્રિલ',
-  'મે',
-  'જૂન',
-  'જુલાઈ',
-  'ઓગસ્ટ',
-  'સપ્ટેમ્બર',
-  'ઓક્ટોબર',
-  'નવેમ્બર',
-  'ડિસેમ્બર'
+  'જાન્યુઆરી', 'ફેબ્રુઆરી', 'માર્ચ', 'એપ્રિલ',
+  'મે', 'જૂન', 'જુલાઈ', 'ઓગસ્ટ',
+  'સપ્ટેમ્બર', 'ઓક્ટોબર', 'નવેમ્બર', 'ડિસેમ્બર'
 ];
 
-/**
- * Common Chromium Launch Arguments for Cloud & Local Environments
- */
 const BROWSER_ARGS = [
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-dev-shm-usage',
-  '--disable-accelerated-2d-canvas',
-  '--disable-gpu',
-  '--no-first-run',
-  '--no-zygote',
-  '--font-render-hinting=none',
-  '--hide-scrollbars',
-  '--disable-extensions'
+  '--no-sandbox', '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage', '--disable-accelerated-2d-canvas',
+  '--disable-gpu', '--no-first-run', '--no-zygote',
+  '--font-render-hinting=none', '--hide-scrollbars', '--disable-extensions'
 ];
 
-/**
- * Recursively search for chrome binary in cache directories
- */
-const findChromeInCache = (dir) => {
-  try {
-    if (!fs.existsSync(dir)) return null;
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        const found = findChromeInCache(fullPath);
-        if (found) return found;
-      } else if (
-        (entry.name === 'chrome' || entry.name === 'chrome.exe' || entry.name === 'chromium') &&
-        !entry.name.endsWith('.deb') &&
-        !entry.name.endsWith('.rpm')
-      ) {
-        return fullPath;
-      }
-    }
-  } catch (_) {}
-  return null;
-};
-
-/**
- * Embed local TTF fonts directly into HTML as base64
- * Ensures 0ms font load and 100% offline rendering on Render with zero external network lag
- */
-const getEmbeddedFontsCSS = () => {
-  try {
-    const regPath = findFontPath('NotoSansGujarati-Regular.ttf');
-    const boldPath = findFontPath('NotoSansGujarati-Bold.ttf');
-    let css = '';
-    if (regPath && fs.existsSync(regPath)) {
-      const regBase64 = fs.readFileSync(regPath).toString('base64');
-      css += `
-        @font-face {
-          font-family: 'Noto Sans Gujarati';
-          font-weight: 400;
-          font-style: normal;
-          src: url('data:font/truetype;charset=utf-8;base64,${regBase64}') format('truetype');
-        }
-      `;
-    }
-    if (boldPath && fs.existsSync(boldPath)) {
-      const boldBase64 = fs.readFileSync(boldPath).toString('base64');
-      css += `
-        @font-face {
-          font-family: 'Noto Sans Gujarati';
-          font-weight: 700;
-          font-style: normal;
-          src: url('data:font/truetype;charset=utf-8;base64,${boldBase64}') format('truetype');
-        }
-      `;
-    }
-    return css;
-  } catch (err) {
-    console.warn('⚠️ Could not inline font base64:', err.message);
-    return '';
-  }
-};
-
-/**
- * Intelligently Launch Chromium across Local OS, Render Containers, Docker, and Serverless
- */
-const launchBrowser = async () => {
-  // 1. Explicit environment variable path
-  if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
-    try {
-      console.log(`🚀 [PDF Generator] Launching via PUPPETEER_EXECUTABLE_PATH: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
-      return await puppeteerCore.launch({
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH,
-        headless: true,
-        args: BROWSER_ARGS
-      });
-    } catch (err) {
-      console.warn('⚠️ PUPPETEER_EXECUTABLE_PATH launch failed:', err.message);
-    }
-  }
-
-  // 2. Try @sparticuz/chromium for Linux containers (Render, Lambda, Railway, etc.)
-  if (process.platform === 'linux') {
-    try {
-      console.log('🚀 [PDF Generator] Attempting @sparticuz/chromium for Linux environment...');
-      const sparticuzPath = await chromium.executablePath();
-      if (sparticuzPath) {
-        return await puppeteerCore.launch({
-          executablePath: sparticuzPath,
-          headless: true,
-          args: [...(chromium.args || []), ...BROWSER_ARGS]
-        });
-      }
-    } catch (sparticuzErr) {
-      console.warn('⚠️ @sparticuz/chromium launch failed:', sparticuzErr.message);
-    }
-  }
-
-  // 3. Search Render / Linux cache directories for installed Chrome
-  const cacheDirs = [
-    '/opt/render/.cache/puppeteer',
-    path.join(process.env.HOME || '/root', '.cache', 'puppeteer'),
-    path.resolve('.cache', 'puppeteer'),
-    path.resolve('..', '.cache', 'puppeteer'),
-    path.resolve('node_modules', 'puppeteer', '.local-chromium')
-  ];
-
-  for (const cacheDir of cacheDirs) {
-    const foundChrome = findChromeInCache(cacheDir);
-    if (foundChrome && fs.existsSync(foundChrome)) {
-      try {
-        console.log(`🚀 [PDF Generator] Launching discovered cached Chrome: ${foundChrome}`);
-        return await puppeteerCore.launch({
-          executablePath: foundChrome,
-          headless: true,
-          args: BROWSER_ARGS
-        });
-      } catch (cacheErr) {
-        console.warn(`⚠️ Cached Chrome ${foundChrome} launch failed:`, cacheErr.message);
-      }
-    }
-  }
-
-  // 4. Try bundled Puppeteer launch directly
-  try {
-    console.log('🚀 [PDF Generator] Attempting direct puppeteer.launch()...');
-    return await puppeteer.launch({
-      headless: true,
-      args: BROWSER_ARGS
-    });
-  } catch (defaultErr) {
-    console.warn('⚠️ Default puppeteer.launch() failed:', defaultErr.message);
-  }
-
-  // 5. Try standard system binary paths on Windows, Mac, Linux
-  const candidatePaths = [
-    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-    'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-    '/usr/bin/google-chrome',
-    '/usr/bin/google-chrome-stable',
-    '/usr/bin/chromium',
-    '/usr/bin/chromium-browser',
-    '/snap/bin/chromium',
-    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
-  ];
-
-  for (const p of candidatePaths) {
-    if (fs.existsSync(p)) {
-      try {
-        console.log(`🚀 [PDF Generator] Launching system Chromium/Chrome at: ${p}`);
-        return await puppeteerCore.launch({
-          executablePath: p,
-          headless: true,
-          args: BROWSER_ARGS
-        });
-      } catch (err) {
-        console.warn(`⚠️ System path ${p} launch failed:`, err.message);
-      }
-    }
-  }
-
-  return null;
-};
-
-/**
- * Optimize Cloudinary avatar URLs for fast, high-res circular embedding
- */
-const optimizeAvatarUrl = (url, size = 120) => {
-  if (!url || typeof url !== 'string') return '';
-
-  if (
-    url.includes('res.cloudinary.com') &&
-    url.includes('/upload/')
-  ) {
-    return url.replace(
-      '/upload/',
-      `/upload/w_${size},h_${size},c_fill,g_face,q_auto,f_auto/`
-    );
-  }
-
-  return url;
-};
-
-/**
- * Build HTML Template for Professional Multi-Page PDF
- */
-const buildReportHTML = (group, monthStr, memberReports) => {
-  const [yearStr, monthNumStr] = (monthStr || '').split('-');
-  const monthNum = parseInt(monthNumStr, 10);
-  const monthName = MONTH_NAMES[monthNum - 1] || monthStr;
-
-  const totalMembers = memberReports.length;
-
-  const avgCompletion =
-    totalMembers > 0
-      ? Math.round(
-          memberReports.reduce(
-            (s, m) =>
-              s + (m.overallStats?.overallCompletionRate || 0),
-            0
-          ) / totalMembers
-        )
-      : 0;
-
-  const totalPerfectDays = memberReports.reduce(
-    (s, m) => s + (m.overallStats?.perfectDays || 0),
-    0
-  );
-
-  /**
-   * Leaderboard Rows
-   */
-  const leaderboardRowsHTML = memberReports
-    .map((m, idx) => {
-      const rank = idx + 1;
-
-      const medal =
-        rank === 1
-          ? '🥇 1'
-          : rank === 2
-          ? '🥈 2'
-          : rank === 3
-          ? '🥉 3'
-          : `${rank}`;
-
-      const medalClass =
-        rank === 1
-          ? 'rank-gold'
-          : rank === 2
-          ? 'rank-silver'
-          : rank === 3
-          ? 'rank-bronze'
-          : 'rank-normal';
-
-      const comp =
-        m.overallStats?.overallCompletionRate || 0;
-
-      const compClass =
-        comp >= 80
-          ? 'completion-high'
-          : comp >= 50
-          ? 'completion-medium'
-          : 'completion-low';
-
-      const avatarUrl = optimizeAvatarUrl(
-        m.userProfile?.avatar || '',
-        60
-      );
-
-      const initial = (
-        m.userProfile?.name || 'U'
-      )
-        .charAt(0)
-        .toUpperCase();
-
-      const avatarHTML = avatarUrl
-        ? `
-          <div class="avatar-circle-sm">
-            <img
-              src="${avatarUrl}"
-              class="avatar-img"
-              onerror="this.outerHTML='<span class=\\'avatar-letter-sm\\'>${initial}</span>'"
-            />
-          </div>
-        `
-        : `
-          <div class="avatar-circle-sm">
-            <span class="avatar-letter-sm">${initial}</span>
-          </div>
-        `;
-
-      return `
-        <tr class="leaderboard-row ${
-          idx % 2 === 1 ? 'row-alt' : ''
-        }">
-
-          <td class="leaderboard-rank ${medalClass}">
-            ${medal}
-          </td>
-
-          <td class="leaderboard-name">
-            <div class="member-name-wrap">
-              ${avatarHTML}
-
-              <div class="member-name-text">
-                ${m.userProfile?.name || 'Unknown'}
-              </div>
-            </div>
-          </td>
-
-          <td class="leaderboard-score">
-            <span class="score-number">
-              ${m.overallStats?.disciplineScore || 0}
-            </span>
-            <span class="score-label">
-              દિવસ
-            </span>
-          </td>
-
-          <td class="leaderboard-rate">
-            <span class="completion-badge ${compClass}">
-              ${comp}%
-            </span>
-          </td>
-
-        </tr>
-      `;
-    })
-    .join('');
-
-  /**
-   * Member Individual Pages
-   */
-  const memberPagesHTML = memberReports
-    .map((report, idx) => {
-      const memberName =
-        report.userProfile?.name || 'સભ્ય';
-
-      const memberUsername =
-        report.userProfile?.username
-          ? `@${report.userProfile.username}`
-          : '';
-
-      const activeDays =
-        report.activeDaysInMonth || 30;
-
-      const disciplineScore =
-        report.overallStats?.disciplineScore || 0;
-
-      const completionRate =
-        report.overallStats?.overallCompletionRate || 0;
-
-      const pageNum = idx + 2;
-
-      const totalPages =
-        memberReports.length + 1;
-
-      const userRank = idx + 1;
-
-      const avatarUrl = optimizeAvatarUrl(
-        report.userProfile?.avatar || '',
-        160
-      );
-
-      const initial = memberName
-        .charAt(0)
-        .toUpperCase();
-
-      const memberAvatarHTML = avatarUrl
-        ? `
-          <div class="avatar-circle-lg">
-            <img
-              src="${avatarUrl}"
-              class="avatar-img"
-              onerror="this.outerHTML='<span class=\\'avatar-letter-lg\\'>${initial}</span>'"
-            />
-          </div>
-        `
-        : `
-          <div class="avatar-circle-lg">
-            <span class="avatar-letter-lg">
-              ${initial}
-            </span>
-          </div>
-        `;
-
-      /**
-       * Habit Rows
-       */
-      const habitRowsHTML = (
-        report.habitSummaries || []
-      )
-        .map((h, hIdx) => {
-          let detailStr = `
-            <b>${h.completedDaysCount}</b>
-            / ${activeDays} દિવસ
-          `;
-
-          let avgStr = '-';
-
-          if (h.type === 'count') {
-            const total =
-              h.typeDetails?.totalCount || 0;
-
-            detailStr = `
-              <div class="habit-main-value">
-                ${total.toLocaleString()}
-                ${h.targetUnit || ''}
-              </div>
-
-              <div class="habit-sub-value">
-                (${h.completedDaysCount}/${activeDays} દિવસ)
-              </div>
-            `;
-
-            avgStr = `
-              રોજ
-              <b>
-                ${h.typeDetails?.dailyAverage || 0}
-              </b>
-              ${h.targetUnit || ''}
-            `;
-          } else if (h.type === 'time_target') {
-            const hrs =
-              h.typeDetails?.totalHours || 0;
-
-            const mins =
-              h.typeDetails?.totalMinutes || 0;
-
-            detailStr = `
-              <div class="habit-main-value">
-                ${
-                  hrs >= 1
-                    ? `${hrs} કલાક`
-                    : `${mins} મિનિટ`
-                }
-              </div>
-
-              <div class="habit-sub-value">
-                (${h.completedDaysCount}/${activeDays} દિવસ)
-              </div>
-            `;
-
-            avgStr = `
-              રોજ
-              <b>
-                ${h.typeDetails?.dailyAverageMinutes || 0}
-              </b>
-              મિનિટ
-            `;
-          } else if (h.type === 'time_of_day') {
-            avgStr = `
-              સરેરાશ
-              <b>
-                ${h.typeDetails?.averageTime || 'N/A'}
-              </b>
-            `;
-          } else if (
-            h.type === 'yes_no' ||
-            h.type === 'boolean'
-          ) {
-            detailStr = `
-              <div class="habit-main-value">
-                ${h.completedDaysCount}
-              </div>
-
-              <div class="habit-sub-value">
-                / ${activeDays} દિવસ
-              </div>
-            `;
-
-            avgStr = `
-              <b>
-                ${h.completionPercentage}%
-              </b>
-              હાજરી
-            `;
-          }
-
-          const comp =
-            h.completionPercentage || 0;
-
-          const barColor =
-            comp >= 80
-              ? '#0f766e'
-              : comp >= 50
-              ? '#d97706'
-              : '#dc2626';
-
-          const badgeClass =
-            comp >= 80
-              ? 'completion-high'
-              : comp >= 50
-              ? 'completion-medium'
-              : 'completion-low';
-
-          return `
-            <tr class="habit-row ${
-              hIdx % 2 === 1 ? 'row-alt' : ''
-            }">
-
-              <td class="habit-title-cell">
-                <div class="habit-title">
-                  ${h.title}
-                </div>
-              </td>
-
-              <td class="habit-progress-cell">
-                ${detailStr}
-              </td>
-
-              <td class="habit-average-cell">
-                ${avgStr}
-              </td>
-
-              <td class="habit-rate-cell">
-
-                <div class="progress-wrapper">
-
-                  <div class="progress-track">
-                    <div
-                      class="progress-fill"
-                      style="
-                        width: ${Math.min(
-                          Math.max(comp, 0),
-                          100
-                        )}%;
-                        background-color: ${barColor};
-                      "
-                    ></div>
-                  </div>
-
-                  <span class="completion-badge ${badgeClass}">
-                    ${comp}%
-                  </span>
-
-                </div>
-
-              </td>
-
-            </tr>
-          `;
-        })
-        .join('');
-
-      return `
-        <div class="page member-page">
-
-          <div class="page-body">
-
-            <!-- PAGE TOP BAR -->
-            <div class="page-top-bar">
-
-              <div class="top-brand">
-                <span class="invocation">
-                  ॥ જય સ્વામિનારાયણ ॥
-                </span>
-
-                <span class="top-divider">•</span>
-
-                <span>
-                  ${group.name || 'Sankalp Group'}
-                </span>
-              </div>
-
-              <div class="page-number">
-                પેજ ${pageNum} / ${totalPages}
-              </div>
-
-            </div>
-
-            <!-- MEMBER PROFILE -->
-            <div class="member-profile-card">
-
-              <div class="profile-left">
-
-                ${memberAvatarHTML}
-
-                <div class="profile-information">
-
-                  <div class="profile-name-row">
-
-                    <span class="member-name">
-                      ${memberName}
-                    </span>
-
-                    <span class="rank-pill">
-                      રેન્ક #${userRank}
-                    </span>
-
-                    ${
-                      memberUsername
-                        ? `
-                          <span class="username-pill">
-                            ${memberUsername}
-                          </span>
-                        `
-                        : ''
-                    }
-
-                  </div>
-
-                  <div class="profile-meta-row">
-
-                    <span class="meta-pill">
-                      <span class="meta-icon">●</span>
-                      ${group.name || 'Sankalp Group'}
-                    </span>
-
-                    <span class="meta-pill">
-                      <span class="meta-icon">📅</span>
-                      ${monthName} ${yearStr}
-                    </span>
-
-                    <span class="meta-pill meta-pill-teal">
-                      <span class="meta-icon">🎯</span>
-                      ${activeDays} દિવસ સક્રિય
-                    </span>
-
-                  </div>
-
-                </div>
-
-              </div>
-
-              <div class="profile-kpis">
-
-                <div class="kpi-box kpi-green">
-
-                  <div class="kpi-label">
-                    DISCIPLINE SCORE
-                  </div>
-
-                  <div class="kpi-value">
-                    ${disciplineScore}
-                    <span>/${activeDays}</span>
-                  </div>
-
-                </div>
-
-                <div class="kpi-box kpi-teal">
-
-                  <div class="kpi-label">
-                    સફળતા દર
-                  </div>
-
-                  <div class="kpi-value">
-                    ${completionRate}%
-                  </div>
-
-                </div>
-
-              </div>
-
-            </div>
-
-            <!-- HABIT SECTION -->
-            <div class="habit-section">
-
-              <div class="section-heading">
-
-                <div class="section-heading-left">
-                  <span class="section-icon">📋</span>
-
-                  <div>
-                    <div class="section-title">
-                      ગ્રુપ નિયમ પ્રગતિ વિગત
-                    </div>
-
-                    <div class="section-subtitle">
-                      ${memberName} ની માસિક નિયમ પાલન પ્રગતિ
-                    </div>
-                  </div>
-                </div>
-
-                <div class="section-month">
-                  ${monthName} ${yearStr}
-                </div>
-
-              </div>
-
-              <div class="table-container">
-
-                <table class="report-table">
-
-                  <thead>
-
-                    <tr class="table-head">
-
-                      <th class="col-habit-title">
-                        નિયમનું નામ
-                      </th>
-
-                      <th class="col-habit-progress">
-                        કુલ પ્રગતિ / દિવસો
-                      </th>
-
-                      <th class="col-habit-avg">
-                        રોજિંદી સરેરાશ
-                      </th>
-
-                      <th class="col-habit-rate">
-                        સફળતા %
-                      </th>
-
-                    </tr>
-
-                  </thead>
-
-                  <tbody>
-                    ${habitRowsHTML}
-                  </tbody>
-
-                </table>
-
-              </div>
-
-            </div>
-
-            <!-- MEMBER INSIGHT -->
-            <div class="member-insight">
-
-              <div class="insight-icon">
-                ✦
-              </div>
-
-              <div class="insight-content">
-
-                <div class="insight-title">
-                  માસિક પ્રગતિ
-                </div>
-
-                <div class="insight-text">
-                  આ મહિનામાં
-                  <strong>${disciplineScore}</strong>
-                  દિવસ સંપૂર્ણ નિયમ પાલન નોંધાયું છે.
-                  કુલ સફળતા દર
-                  <strong>${completionRate}%</strong>
-                  રહ્યો છે.
-                </div>
-
-              </div>
-
-            </div>
-
-          </div>
-
-          <!-- FOOTER -->
-          <div class="page-bottom-bar">
-
-            <div class="footer-quote">
-              🌟
-              <i>
-                "નિયમ, ધર્મ અને સંકલ્પનું દ્રઢ પાલન એ જ ભક્તિની સાચી શોભા છે."
-              </i>
-            </div>
-
-            <div class="footer-right">
-              જય સ્વામિનારાયણ 🙏🏻
-            </div>
-
-          </div>
-
-        </div>
-      `;
-    })
-    .join('');
-
-  return `
-<!DOCTYPE html>
-
-<html lang="gu">
-
-<head>
-
-  <meta charset="UTF-8">
-
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0"
-  >
-
-  <title>
-    ${group.name || 'Sankalp Group'}
-    Monthly Report -
-    ${monthName} ${yearStr}
-  </title>
-
-  <link
-    rel="preconnect"
-    href="https://fonts.googleapis.com"
-  >
-
-  <link
-    rel="preconnect"
-    href="https://fonts.gstatic.com"
-    crossorigin
-  >
-
-  <link
-    href="https://fonts.googleapis.com/css2?family=Noto+Sans+Gujarati:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap"
-    rel="stylesheet"
-  >
-
-  <style>
-    ${getEmbeddedFontsCSS()}
-
-    /* =========================================================
-       GLOBAL
-       ========================================================= */
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    html,
-    body {
-      width: 100%;
-      min-height: 100%;
-    }
-
-    body {
-      font-family:
-        'Noto Sans Gujarati',
-        'Plus Jakarta Sans',
-        -apple-system,
-        BlinkMacSystemFont,
-        'Segoe UI',
-        sans-serif;
-
-      background: #e2e8f0;
-
-      color: #0f172a;
-
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-
-      text-rendering: optimizeLegibility;
-    }
-
-    @page {
-      size: A4 portrait;
-      margin: 0;
-    }
-
-    /* =========================================================
-       PAGE
-       ========================================================= */
-
-    .page {
-      width: 210mm;
-      height: 297mm;
-      max-height: 297mm;
-
-      padding: 10mm 13mm 8mm 13mm;
-
-      background: #ffffff;
-
-      position: relative;
-
-      page-break-after: always;
-      page-break-inside: avoid;
-
-      display: flex;
-      flex-direction: column;
-
-      justify-content: space-between;
-
-      margin: 0 auto;
-
-      overflow: hidden;
-    }
-
-    .page:last-child {
-      page-break-after: avoid;
-    }
-
-    .page-body {
-      width: 100%;
-      flex: 1;
-
-      min-height: 0;
-    }
-
-    /* =========================================================
-       TOP BAR
-       ========================================================= */
-
-    .page-top-bar {
-      width: 100%;
-
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-
-      padding: 0 2px 7px 2px;
-
-      border-bottom: 1.8px solid #0f766e;
-
-      margin-bottom: 10px;
-    }
-
-    .top-brand {
-      display: flex;
-      align-items: center;
-      gap: 7px;
-
-      font-size: 12px;
-      font-weight: 800;
-
-      color: #134e4a;
-    }
-
-    .invocation {
-      color: #0f766e;
-    }
-
-    .top-divider {
-      color: #94a3b8;
-    }
-
-    .page-number {
-      font-family:
-        'Plus Jakarta Sans',
-        sans-serif;
-
-      font-size: 10.5px;
-      font-weight: 800;
-
-      color: #64748b;
-
-      letter-spacing: 0.2px;
-    }
-
-    /* =========================================================
-       COVER / SUMMARY
-       ========================================================= */
-
-    .center-heading-banner {
-      text-align: center;
-
-      padding: 0 0 7px 0;
-
-      margin-bottom: 2px;
-    }
-
-    .divine-small {
-      font-size: 11px;
-      font-weight: 900;
-
-      color: #b45309;
-
-      letter-spacing: 1.8px;
-
-      margin-bottom: 2px;
-    }
-
-    .divine-main {
-      font-size: 22px;
-      line-height: 1.2;
-
-      font-weight: 900;
-
-      color: #134e4a;
-    }
-
-    /* =========================================================
-       HERO
-       ========================================================= */
-
-    .hero-banner-compact {
-      width: 100%;
-
-      background:
-        linear-gradient(
-          135deg,
-          #0f766e 0%,
-          #115e59 48%,
-          #134e4a 100%
-        );
-
-      color: #ffffff;
-
-      padding: 15px 19px;
-
-      border-radius: 10px;
-
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-
-      box-shadow:
-        0 5px 15px
-        rgba(15, 118, 110, 0.16);
-
-      position: relative;
-
-      overflow: hidden;
-    }
-
-    .hero-banner-compact::after {
-      content: '';
-
-      position: absolute;
-
-      width: 150px;
-      height: 150px;
-
-      border-radius: 50%;
-
-      right: -65px;
-      top: -90px;
-
-      background: rgba(255, 255, 255, 0.07);
-    }
-
-    .hero-left {
-      position: relative;
-      z-index: 1;
-    }
-
-    .hero-title {
-      font-size: 23px;
-      line-height: 1.25;
-
-      font-weight: 900;
-
-      letter-spacing: -0.4px;
-    }
-
-    .hero-subtitle {
-      font-size: 11.5px;
-
-      color: #ccfbf1;
-
-      font-weight: 600;
-
-      margin-top: 3px;
-    }
-
-    .hero-date {
-      position: relative;
-      z-index: 1;
-
-      background: rgba(4, 47, 46, 0.65);
-
-      border: 1px solid
-        rgba(153, 246, 228, 0.3);
-
-      padding: 7px 13px;
-
-      border-radius: 999px;
-
-      font-size: 11.5px;
-      font-weight: 900;
-
-      color: #ccfbf1;
-    }
-
-    /* =========================================================
-       SUMMARY CARDS
-       ========================================================= */
-
-    .summary-grid {
-      display: grid;
-
-      grid-template-columns:
-        repeat(2, 1fr);
-
-      gap: 10px;
-
-      margin-top: 10px;
-    }
-
-    .stat-card-compact {
-      min-height: 62px;
-
-      background: #ffffff;
-
-      border: 1px solid #cbd5e1;
-
-      border-radius: 9px;
-
-      padding: 9px 14px;
-
-      text-align: center;
-
-      box-shadow:
-        0 2px 7px
-        rgba(15, 23, 42, 0.04);
-    }
-
-    .stat-card-compact.green {
-      background: #f0fdf4;
-      border-color: #a7f3d0;
-    }
-
-    .stat-card-compact.teal {
-      background: #f0fdfa;
-      border-color: #99f6e4;
-    }
-
-    .stat-label {
-      font-size: 9.5px;
-
-      font-weight: 900;
-
-      letter-spacing: 0.5px;
-
-      color: #0f766e;
-    }
-
-    .stat-value {
-      margin-top: 3px;
-
-      font-size: 20px;
-
-      line-height: 1.15;
-
-      font-weight: 900;
-
-      color: #134e4a;
-    }
-
-    /* =========================================================
-       SECTION HEADING
-       ========================================================= */
-
-    .section-heading {
-      display: flex;
-
-      align-items: center;
-
-      justify-content: space-between;
-
-      margin-bottom: 7px;
-    }
-
-    .section-heading-left {
-      display: flex;
-
-      align-items: center;
-
-      gap: 9px;
-    }
-
-    .section-icon {
-      width: 29px;
-      height: 29px;
-
-      border-radius: 8px;
-
-      display: flex;
-      align-items: center;
-      justify-content: center;
-
-      background: #ccfbf1;
-
-      border: 1px solid #99f6e4;
-
-      font-size: 15px;
-    }
-
-    .section-title {
-      font-size: 14px;
-
-      font-weight: 900;
-
-      color: #0f172a;
-
-      line-height: 1.2;
-    }
-
-    .section-subtitle {
-      margin-top: 2px;
-
-      font-size: 9px;
-
-      color: #64748b;
-
-      font-weight: 600;
-    }
-
-    .section-month {
-      font-size: 9.5px;
-
-      font-weight: 800;
-
-      color: #0f766e;
-
-      background: #f0fdfa;
-
-      border: 1px solid #99f6e4;
-
-      border-radius: 999px;
-
-      padding: 4px 9px;
-    }
-
-    /* =========================================================
-       TABLE
-       ========================================================= */
-
-    .table-container {
-      width: 100%;
-
-      border: 1px solid #94a3b8;
-
-      border-radius: 9px;
-
-      overflow: hidden;
-
-      background: #ffffff;
-
-      box-shadow:
-        0 2px 7px
-        rgba(15, 23, 42, 0.04);
-    }
-
-    .report-table {
-      width: 100%;
-
-      border-collapse: collapse;
-
-      table-layout: fixed;
-    }
-
-    .table-head {
-      background:
-        linear-gradient(
-          135deg,
-          #0f766e,
-          #115e59
-        );
-
-      color: #ffffff;
-
-      font-size: 10.5px;
-
-      font-weight: 900;
-
-      letter-spacing: 0.25px;
-    }
-
-    .table-head th {
-      padding: 8px 9px;
-
-      font-weight: 900;
-
-      text-align: center;
-
-      vertical-align: middle;
-
-      border-right:
-        1px solid
-        rgba(255, 255, 255, 0.13);
-
-      height: 35px;
-    }
-
-    .table-head th:last-child {
-      border-right: none;
-    }
-
-    /* =========================================================
-       LEADERBOARD
-       ========================================================= */
-
-    .leaderboard-section {
-      margin-top: 11px;
-    }
-
-    .leaderboard-row td {
-      height: 35px;
-
-      padding: 4px 8px;
-
-      border-bottom: 1px solid #e2e8f0;
-
-      text-align: center;
-
-      vertical-align: middle;
-    }
-
-    .leaderboard-row:last-child td {
-      border-bottom: none;
-    }
-
-    .row-alt {
-      background: #f8fafc;
-    }
-
-    .col-rank {
-      width: 14%;
-    }
-
-    .col-name {
-      width: 48%;
-    }
-
-    .col-score {
-      width: 22%;
-    }
-
-    .col-rate {
-      width: 16%;
-    }
-
-    .leaderboard-rank {
-      font-family:
-        'Plus Jakarta Sans',
-        sans-serif;
-
-      font-size: 11px;
-
-      font-weight: 900;
-    }
-
-    .rank-gold {
-      color: #b45309;
-      font-size: 12px;
-    }
-
-    .rank-silver {
-      color: #475569;
-      font-size: 12px;
-    }
-
-    .rank-bronze {
-      color: #92400e;
-      font-size: 12px;
-    }
-
-    .rank-normal {
-      color: #334155;
-    }
-
-    .member-name-wrap {
-      display: flex;
-
-      align-items: center;
-
-      justify-content: center;
-
-      gap: 8px;
-    }
-
-    .member-name-text {
-      font-size: 10.5px;
-
-      font-weight: 800;
-
-      color: #0f172a;
-
-      line-height: 1.25;
-
-      text-align: left;
-    }
-
-    .leaderboard-score {
-      font-family:
-        'Plus Jakarta Sans',
-        sans-serif;
-    }
-
-    .score-number {
-      font-size: 11px;
-
-      font-weight: 900;
-
-      color: #134e4a;
-    }
-
-    .score-label {
-      font-size: 8.5px;
-
-      color: #64748b;
-
-      font-weight: 700;
-    }
-
-    /* =========================================================
-       COMPLETION BADGES
-       ========================================================= */
-
-    .completion-badge {
-      display: inline-flex;
-
-      align-items: center;
-      justify-content: center;
-
-      min-width: 49px;
-
-      padding: 3px 8px;
-
-      border-radius: 999px;
-
-      font-family:
-        'Plus Jakarta Sans',
-        sans-serif;
-
-      font-size: 9.5px;
-
-      font-weight: 900;
-
-      border: 1px solid;
-    }
-
-    .completion-high {
-      color: #065f46;
-
-      background: #d1fae5;
-
-      border-color: #86efac;
-    }
-
-    .completion-medium {
-      color: #92400e;
-
-      background: #fef3c7;
-
-      border-color: #fcd34d;
-    }
-
-    .completion-low {
-      color: #991b1b;
-
-      background: #fee2e2;
-
-      border-color: #fca5a5;
-    }
-
-    /* =========================================================
-       AVATARS
-       ========================================================= */
-
-    .avatar-circle-sm {
-      width: 27px;
-      height: 27px;
-
-      min-width: 27px;
-
-      border-radius: 50%;
-
-      overflow: hidden;
-
-      border: 1.8px solid #0f766e;
-
-      display: inline-flex;
-
-      align-items: center;
-      justify-content: center;
-
-      background:
-        linear-gradient(
-          135deg,
-          #0f766e,
-          #115e59
-        );
-
-      flex-shrink: 0;
-    }
-
-    .avatar-circle-lg {
-      width: 66px;
-      height: 66px;
-
-      min-width: 66px;
-
-      border-radius: 50%;
-
-      overflow: hidden;
-
-      border: 2.5px solid #0f766e;
-
-      display: flex;
-
-      align-items: center;
-      justify-content: center;
-
-      background:
-        linear-gradient(
-          135deg,
-          #0f766e,
-          #115e59
-        );
-
-      flex-shrink: 0;
-
-      box-shadow:
-        0 4px 10px
-        rgba(15, 118, 110, 0.18);
-    }
-
-    .avatar-img {
-      width: 100%;
-      height: 100%;
-
-      object-fit: cover;
-
-      display: block;
-    }
-
-    .avatar-letter-sm {
-      color: #ffffff;
-
-      font-weight: 900;
-
-      font-size: 10px;
-    }
-
-    .avatar-letter-lg {
-      color: #ffffff;
-
-      font-weight: 900;
-
-      font-size: 24px;
-    }
-
-    /* =========================================================
-       MEMBER PROFILE
-       ========================================================= */
-
-    .member-profile-card {
-      width: 100%;
-
-      background:
-        linear-gradient(
-          135deg,
-          #f8fafc 0%,
-          #ffffff 100%
-        );
-
-      border: 1px solid #cbd5e1;
-
-      padding: 13px 15px;
-
-      border-radius: 11px;
-
-      display: flex;
-
-      justify-content: space-between;
-
-      align-items: center;
-
-      gap: 15px;
-
-      box-shadow:
-        0 3px 10px
-        rgba(15, 23, 42, 0.045);
-    }
-
-    .profile-left {
-      display: flex;
-
-      align-items: center;
-
-      gap: 13px;
-
-      min-width: 0;
-
-      flex: 1;
-    }
-
-    .profile-information {
-      min-width: 0;
-    }
-
-    .profile-name-row {
-      display: flex;
-
-      align-items: center;
-
-      flex-wrap: wrap;
-
-      gap: 6px;
-    }
-
-    .member-name {
-      font-size: 19px;
-
-      line-height: 1.25;
-
-      font-weight: 900;
-
-      color: #020617;
-    }
-
-    .rank-pill,
-    .username-pill {
-      display: inline-flex;
-
-      align-items: center;
-
-      border-radius: 999px;
-
-      padding: 3px 8px;
-
-      font-size: 8.5px;
-
-      font-weight: 900;
-    }
-
-    .rank-pill {
-      background: #134e4a;
-
-      color: #ccfbf1;
-
-      border: 1px solid #0f766e;
-    }
-
-    .username-pill {
-      background: #f1f5f9;
-
-      color: #475569;
-
-      border: 1px solid #cbd5e1;
-    }
-
-    .profile-meta-row {
-      display: flex;
-
-      align-items: center;
-
-      flex-wrap: wrap;
-
-      gap: 5px;
-
-      margin-top: 7px;
-    }
-
-    .meta-pill {
-      display: inline-flex;
-
-      align-items: center;
-
-      gap: 4px;
-
-      padding: 3px 7px;
-
-      border-radius: 5px;
-
-      background: #f8fafc;
-
-      border: 1px solid #dbe3ec;
-
-      color: #334155;
-
-      font-size: 8.5px;
-
-      font-weight: 800;
-    }
-
-    .meta-pill-teal {
-      color: #115e59;
-
-      background: #f0fdfa;
-
-      border-color: #99f6e4;
-    }
-
-    .meta-icon {
-      font-size: 8px;
-    }
-
-    /* =========================================================
-       KPI
-       ========================================================= */
-
-    .profile-kpis {
-      display: flex;
-
-      align-items: stretch;
-
-      gap: 7px;
-
-      flex-shrink: 0;
-    }
-
-    .kpi-box {
-      min-width: 94px;
-
-      padding: 8px 11px;
-
-      border-radius: 8px;
-
-      text-align: center;
-
-      border: 1.5px solid;
-    }
-
-    .kpi-green {
-      background: #f0fdf4;
-
-      border-color: #86efac;
-    }
-
-    .kpi-teal {
-      background: #f0fdfa;
-
-      border-color: #5eead4;
-    }
-
-    .kpi-label {
-      font-family:
-        'Plus Jakarta Sans',
-        sans-serif;
-
-      font-size: 7.5px;
-
-      letter-spacing: 0.4px;
-
-      font-weight: 900;
-
-      color: #166534;
-    }
-
-    .kpi-teal .kpi-label {
-      color: #115e59;
-    }
-
-    .kpi-value {
-      margin-top: 3px;
-
-      font-family:
-        'Plus Jakarta Sans',
-        sans-serif;
-
-      font-size: 17px;
-
-      line-height: 1;
-
-      font-weight: 900;
-
-      color: #14532d;
-    }
-
-    .kpi-teal .kpi-value {
-      color: #134e4a;
-    }
-
-    .kpi-value span {
-      font-size: 9px;
-
-      font-weight: 800;
-
-      opacity: 0.7;
-    }
-
-    /* =========================================================
-       HABIT SECTION
-       ========================================================= */
-
-    .habit-section {
-      margin-top: 13px;
-    }
-
-    .habit-row td {
-      height: 45px;
-
-      padding: 6px 9px;
-
-      border-bottom: 1px solid #e2e8f0;
-
-      text-align: center;
-
-      vertical-align: middle;
-    }
-
-    .habit-row:last-child td {
-      border-bottom: none;
-    }
-
-    .col-habit-title {
-      width: 33%;
-    }
-
-    .col-habit-progress {
-      width: 29%;
-    }
-
-    .col-habit-avg {
-      width: 18%;
-    }
-
-    .col-habit-rate {
-      width: 20%;
-    }
-
-    .habit-title {
-      font-size: 10.5px;
-
-      line-height: 1.35;
-
-      font-weight: 900;
-
-      color: #0f172a;
-    }
-
-    .habit-main-value {
-      font-size: 10.5px;
-
-      line-height: 1.2;
-
-      font-weight: 900;
-
-      color: #134e4a;
-    }
-
-    .habit-sub-value {
-      margin-top: 2px;
-
-      font-size: 8px;
-
-      color: #64748b;
-
-      font-weight: 600;
-    }
-
-    .habit-average-cell {
-      font-size: 9px;
-
-      line-height: 1.35;
-
-      color: #475569;
-
-      font-weight: 700;
-    }
-
-    .habit-average-cell b {
-      color: #0f172a;
-
-      font-weight: 900;
-    }
-
-    .progress-wrapper {
-      display: flex;
-
-      align-items: center;
-
-      justify-content: center;
-
-      gap: 7px;
-    }
-
-    .progress-track {
-      width: 67px;
-      height: 7px;
-
-      background: #e2e8f0;
-
-      border-radius: 999px;
-
-      overflow: hidden;
-
-      display: inline-block;
-    }
-
-    .progress-fill {
-      height: 100%;
-
-      border-radius: 999px;
-    }
-
-    /* =========================================================
-       MEMBER INSIGHT
-       ========================================================= */
-
-    .member-insight {
-      margin-top: 11px;
-
-      display: flex;
-
-      align-items: center;
-
-      gap: 9px;
-
-      padding: 8px 11px;
-
-      background:
-        linear-gradient(
-          135deg,
-          #f0fdfa,
-          #f8fafc
-        );
-
-      border: 1px solid #99f6e4;
-
-      border-radius: 8px;
-    }
-
-    .insight-icon {
-      width: 26px;
-      height: 26px;
-
-      min-width: 26px;
-
-      display: flex;
-
-      align-items: center;
-      justify-content: center;
-
-      border-radius: 7px;
-
-      background: #ccfbf1;
-
-      color: #0f766e;
-
-      font-size: 13px;
-    }
-
-    .insight-title {
-      font-size: 8px;
-
-      font-weight: 900;
-
-      color: #0f766e;
-
-      letter-spacing: 0.4px;
-
-      text-transform: uppercase;
-    }
-
-    .insight-text {
-      margin-top: 2px;
-
-      font-size: 8.5px;
-
-      line-height: 1.4;
-
-      color: #475569;
-
-      font-weight: 600;
-    }
-
-    .insight-text strong {
-      color: #134e4a;
-
-      font-weight: 900;
-    }
-
-    /* =========================================================
-       FOOTER
-       ========================================================= */
-
-    .page-bottom-bar {
-      width: 100%;
-
-      display: flex;
-
-      justify-content: space-between;
-
-      align-items: center;
-
-      gap: 15px;
-
-      padding-top: 7px;
-
-      border-top: 1px solid #cbd5e1;
-
-      margin-top: 7px;
-    }
-
-    .footer-quote {
-      font-size: 8.5px;
-
-      color: #475569;
-
-      font-weight: 700;
-
-      line-height: 1.3;
-    }
-
-    .footer-right {
-      white-space: nowrap;
-
-      font-size: 8.5px;
-
-      color: #0f766e;
-
-      font-weight: 900;
-    }
-
-    .cover-footer-left {
-      font-size: 8.5px;
-
-      color: #64748b;
-
-      font-weight: 800;
-    }
-
-    .cover-footer-right {
-      font-family:
-        'Plus Jakarta Sans',
-        sans-serif;
-
-      font-size: 8.5px;
-
-      color: #0f766e;
-
-      font-weight: 900;
-    }
-
-    /* =========================================================
-       COVER PAGE SPECIAL SPACING
-       ========================================================= */
-
-    .cover-page .page-body {
-      display: flex;
-
-      flex-direction: column;
-    }
-
-    .cover-page .leaderboard-section {
-      flex: 1;
-
-      min-height: 0;
-    }
-
-    /* =========================================================
-       PRINT
-       ========================================================= */
-
-    @media print {
-
-      html,
-      body {
-        background: #ffffff;
-      }
-
-      .page {
-        margin: 0;
-
-        box-shadow: none;
-
-        page-break-after: always;
-      }
-
-      .page:last-child {
-        page-break-after: avoid;
-      }
-    }
-
-  </style>
-
-</head>
-
-<body>
-
-  <!-- =========================================================
-       PAGE 1: GROUP SUMMARY & LEADERBOARD
-       ========================================================= -->
-
-  <div class="page cover-page">
-
-    <div class="page-body">
-
-      <!-- DIVINE HEADER -->
-
-      <div class="center-heading-banner">
-
-        <div class="divine-small">
-          ॥ શ્રી સ્વામિનારાયણો વિજયતે ॥
-        </div>
-
-        <div class="divine-main">
-          ॥ જય સ્વામિનારાયણ ॥
-        </div>
-
-      </div>
-
-      <!-- TOP BAR -->
-
-      <div class="page-top-bar">
-
-        <div class="top-brand">
-
-          <span>
-            ${group.name || 'Sankalp Group'}
-          </span>
-
-          <span class="top-divider">
-            •
-          </span>
-
-          <span>
-            માસિક પ્રગતિ અહેવાલ
-          </span>
-
-        </div>
-
-        <div class="page-number">
-          પેજ ૧ / ${memberReports.length + 1}
-        </div>
-
-      </div>
-
-      <!-- HERO -->
-
-      <div class="hero-banner-compact">
-
-        <div class="hero-left">
-
-          <div class="hero-title">
-            ${group.name || 'Sankalp Group 🙏🏻'}
-          </div>
-
-          <div class="hero-subtitle">
-            માસિક પ્રગતિ અહેવાલ અને લીડરબોર્ડ
-          </div>
-
-        </div>
-
-        <div class="hero-date">
-          📅 ${monthName} ${yearStr}
-        </div>
-
-      </div>
-
-      <!-- SUMMARY -->
-
-      <div class="summary-grid">
-
-        <div class="stat-card-compact green">
-
-          <div class="stat-label">
-            કુલ સભ્યો
-          </div>
-
-          <div class="stat-value">
-            ${totalMembers} સભ્યો
-          </div>
-
-        </div>
-
-        <div class="stat-card-compact teal">
-
-          <div class="stat-label">
-            સરેરાશ સફળતા દર
-          </div>
-
-          <div class="stat-value">
-            ${avgCompletion}%
-          </div>
-
-        </div>
-
-      </div>
-
-      <!-- LEADERBOARD -->
-
-      <div class="leaderboard-section">
-
-        <div class="section-heading">
-
-          <div class="section-heading-left">
-
-            <div class="section-icon">
-              🏆
-            </div>
-
-            <div>
-
-              <div class="section-title">
-                માસિક લીડરબોર્ડ રેન્કિંગ
-              </div>
-
-              <div class="section-subtitle">
-                ગ્રુપ સભ્યોની માસિક નિયમ પાલન પ્રગતિ
-              </div>
-
-            </div>
-
-          </div>
-
-          <div class="section-month">
-            ${monthName} ${yearStr}
-          </div>
-
-        </div>
-
-        <div class="table-container">
-
-          <table class="report-table">
-
-            <thead>
-
-              <tr class="table-head">
-
-                <th class="col-rank">
-                  ક્રમ
-                </th>
-
-                <th class="col-name">
-                  સભ્યનું નામ
-                </th>
-
-                <th class="col-score">
-                  સ્કોર
-                </th>
-
-                <th class="col-rate">
-                  સફળતા %
-                </th>
-
-              </tr>
-
-            </thead>
-
-            <tbody>
-
-              ${leaderboardRowsHTML}
-
-            </tbody>
-
-          </table>
-
-        </div>
-
-      </div>
-
-    </div>
-
-    <!-- FOOTER -->
-
-    <div class="page-bottom-bar">
-
-      <div class="cover-footer-left">
-        જય સ્વામિનારાયણ • સંકલ્પ હેબિટ ટ્રેકર
-      </div>
-
-      <div class="cover-footer-right">
-        https://habitsankalp.netlify.app
-      </div>
-
-    </div>
-
-  </div>
-
-  <!-- =========================================================
-       PAGES 2..N: INDIVIDUAL MEMBER PAGES
-       ========================================================= -->
-
-  ${memberPagesHTML}
-
-</body>
-
-</html>
-`;
-};
-
+// ─── 1. Font Path Resolver ────────────────────────────────────────────────────
+// MUST be defined first — all other font functions depend on this
 const findFontPath = (fontFileName) => {
-  const possiblePaths = [
+  const candidates = [
     path.resolve(__dirname, '..', 'assets', 'fonts', fontFileName),
     path.resolve(__dirname, 'assets', 'fonts', fontFileName),
     path.resolve(process.cwd(), 'server', 'assets', 'fonts', fontFileName),
@@ -2283,308 +33,734 @@ const findFontPath = (fontFileName) => {
     path.resolve('server', 'assets', 'fonts', fontFileName),
     path.resolve('assets', 'fonts', fontFileName)
   ];
-  for (const p of possiblePaths) {
+  for (const p of candidates) {
     if (fs.existsSync(p)) return p;
   }
   return null;
 };
 
-/**
- * Comprehensive Fallback PDF Generator using PDFKit
- * Generates a full multi-page formatted document (Page 1 = Summary/Leaderboard, Pages 2..N = Member Details)
- */
+// ─── 2. Base64 Font Embedder ──────────────────────────────────────────────────
+// Reads local TTF files and inlines them as @font-face data URIs
+// so Chromium on Render never needs a network call to Google Fonts
+const getEmbeddedFontsCSS = () => {
+  try {
+    const regPath = findFontPath('NotoSansGujarati-Regular.ttf');
+    const boldPath = findFontPath('NotoSansGujarati-Bold.ttf');
+    if (!regPath || !boldPath) {
+      console.warn('[PDF] Gujarati fonts not found on disk, Gujarati text may not render');
+      return '';
+    }
+    const regB64  = fs.readFileSync(regPath).toString('base64');
+    const boldB64 = fs.readFileSync(boldPath).toString('base64');
+    console.log('[PDF] Embedding Gujarati fonts as base64 (' + Math.round((regB64.length + boldB64.length) / 1024) + ' KB)');
+    return `
+      @font-face {
+        font-family: 'NotoGuj';
+        font-weight: 400;
+        font-style: normal;
+        src: url('data:font/truetype;base64,${regB64}') format('truetype');
+        font-display: block;
+      }
+      @font-face {
+        font-family: 'NotoGuj';
+        font-weight: 700;
+        font-style: normal;
+        src: url('data:font/truetype;base64,${boldB64}') format('truetype');
+        font-display: block;
+      }
+    `;
+  } catch (err) {
+    console.warn('[PDF] Font embed failed:', err.message);
+    return '';
+  }
+};
+
+// ─── 3. Chrome Discovery ──────────────────────────────────────────────────────
+const findChromeInCache = (dir) => {
+  try {
+    if (!fs.existsSync(dir)) return null;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        const found = findChromeInCache(full);
+        if (found) return found;
+      } else if (
+        (entry.name === 'chrome' || entry.name === 'chrome.exe' || entry.name === 'chromium') &&
+        !full.endsWith('.deb') && !full.endsWith('.rpm')
+      ) {
+        return full;
+      }
+    }
+  } catch (_) {}
+  return null;
+};
+
+const launchBrowser = async () => {
+  // 1. Explicit env path (Dockerfile ENV or Render env var)
+  if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+    try {
+      console.log('[PDF] Launching via PUPPETEER_EXECUTABLE_PATH');
+      return await puppeteerCore.launch({ executablePath: process.env.PUPPETEER_EXECUTABLE_PATH, headless: true, args: BROWSER_ARGS });
+    } catch (e) { console.warn('[PDF] env path failed:', e.message); }
+  }
+
+  // 2. @sparticuz/chromium — purpose-built for Linux/Render/Lambda/Railway
+  if (process.platform === 'linux') {
+    try {
+      console.log('[PDF] Trying @sparticuz/chromium for Linux...');
+      const sparticuzPath = await chromium.executablePath();
+      if (sparticuzPath && fs.existsSync(sparticuzPath)) {
+        console.log('[PDF] sparticuz path:', sparticuzPath);
+        return await puppeteerCore.launch({
+          executablePath: sparticuzPath,
+          headless: true,
+          args: [...(chromium.args || []), ...BROWSER_ARGS]
+        });
+      }
+    } catch (e) { console.warn('[PDF] sparticuz failed:', e.message); }
+  }
+
+  // 3. Search Render cache dirs (postinstall chrome ends up here)
+  for (const dir of [
+    '/opt/render/.cache/puppeteer',
+    path.join(process.env.HOME || '/root', '.cache', 'puppeteer'),
+    path.resolve('.cache', 'puppeteer'),
+    path.resolve('..', '.cache', 'puppeteer')
+  ]) {
+    const chrome = findChromeInCache(dir);
+    if (chrome) {
+      try {
+        console.log('[PDF] Launching cached chrome:', chrome);
+        return await puppeteerCore.launch({ executablePath: chrome, headless: true, args: BROWSER_ARGS });
+      } catch (e) { console.warn('[PDF] cached chrome failed:', e.message); }
+    }
+  }
+
+  // 4. Default puppeteer.launch (bundled chrome)
+  try {
+    console.log('[PDF] Trying default puppeteer.launch()...');
+    return await puppeteer.launch({ headless: true, args: BROWSER_ARGS });
+  } catch (e) { console.warn('[PDF] default puppeteer failed:', e.message); }
+
+  // 5. System paths
+  for (const p of [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+    '/usr/bin/google-chrome', '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium', '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+  ]) {
+    if (fs.existsSync(p)) {
+      try {
+        console.log('[PDF] Launching system browser:', p);
+        return await puppeteerCore.launch({ executablePath: p, headless: true, args: BROWSER_ARGS });
+      } catch (e) { console.warn('[PDF] system path failed:', p); }
+    }
+  }
+
+  return null;
+};
+
+// ─── 4. Avatar URL ────────────────────────────────────────────────────────────
+const optimizeAvatar = (url, size = 80) => {
+  if (!url || typeof url !== 'string') return '';
+  if (url.includes('res.cloudinary.com') && url.includes('/upload/')) {
+    return url.replace('/upload/', `/upload/w_${size},h_${size},c_fill,g_face,q_auto,f_auto/`);
+  }
+  return url;
+};
+
+// ─── 5. HTML Builder ──────────────────────────────────────────────────────────
+const buildReportHTML = (group, monthStr, memberReports) => {
+  const [yearStr, monthNumStr] = (monthStr || '').split('-');
+  const monthNum = parseInt(monthNumStr, 10);
+  const monthName = MONTH_NAMES[monthNum - 1] || monthStr;
+  const totalMembers = memberReports.length;
+  const avgCompletion = totalMembers > 0
+    ? Math.round(memberReports.reduce((s, m) => s + (m.overallStats?.overallCompletionRate || 0), 0) / totalMembers)
+    : 0;
+
+  // Embed fonts once per HTML document (base64)
+  const fontsCSS = getEmbeddedFontsCSS();
+
+  // ── Leaderboard rows
+  const lbRows = memberReports.map((m, i) => {
+    const rank = i + 1;
+    const medalEmoji = rank === 1 ? '&#127947;' : rank === 2 ? '&#127948;' : rank === 3 ? '&#127949;' : '';
+    const medalClass = rank <= 3 ? ['rank-gold', 'rank-silver', 'rank-bronze'][rank - 1] : 'rank-normal';
+    const comp = m.overallStats?.overallCompletionRate || 0;
+    const compClass = comp >= 80 ? 'high' : comp >= 50 ? 'mid' : 'low';
+    const avatarUrl = optimizeAvatar(m.userProfile?.avatar || '', 56);
+    const initial = (m.userProfile?.name || 'U').charAt(0).toUpperCase();
+    const avatarHTML = avatarUrl
+      ? `<div class="av-sm"><img src="${avatarUrl}" onerror="this.style.display='none';this.nextSibling.style.display='flex'"><span class="av-init" style="display:none">${initial}</span></div>`
+      : `<div class="av-sm"><span class="av-init">${initial}</span></div>`;
+    return `
+      <tr class="${i % 2 ? 'row-alt' : ''}">
+        <td class="td-rank ${medalClass}">${medalEmoji} ${rank}</td>
+        <td class="td-name"><div class="name-row">${avatarHTML}<span>${m.userProfile?.name || 'Unknown'}</span></div></td>
+        <td class="td-score">${m.overallStats?.disciplineScore || 0}</td>
+        <td class="td-pct"><span class="badge badge-${compClass}">${comp}%</span></td>
+      </tr>`;
+  }).join('');
+
+  // ── Member pages
+  const memberPages = memberReports.map((report, i) => {
+    const name = report.userProfile?.name || 'સભ્ય';
+    const username = report.userProfile?.username ? `@${report.userProfile.username}` : '';
+    const activeDays = report.activeDaysInMonth || 30;
+    const score = report.overallStats?.disciplineScore || 0;
+    const rate = report.overallStats?.overallCompletionRate || 0;
+    const pageNum = i + 2;
+    const totalPages = memberReports.length + 1;
+    const avatarUrl = optimizeAvatar(report.userProfile?.avatar || '', 112);
+    const initial = name.charAt(0).toUpperCase();
+    const avatarHTML = avatarUrl
+      ? `<div class="av-lg"><img src="${avatarUrl}" onerror="this.style.display='none';this.nextSibling.style.display='flex'"><span class="av-init-lg" style="display:none">${initial}</span></div>`
+      : `<div class="av-lg"><span class="av-init-lg">${initial}</span></div>`;
+
+    const habitRows = (report.habitSummaries || []).map((h, hi) => {
+      const comp = h.completionPercentage || 0;
+      const barColor = comp >= 80 ? '#0f766e' : comp >= 50 ? '#d97706' : '#dc2626';
+      const compClass = comp >= 80 ? 'high' : comp >= 50 ? 'mid' : 'low';
+
+      let prog = `<b>${h.completedDaysCount}</b>/${activeDays} દિ.`;
+      let avg = '-';
+      if (h.type === 'count') {
+        const total = h.typeDetails?.totalCount || 0;
+        prog = `${total.toLocaleString()} ${h.targetUnit || ''}<br><small>(${h.completedDaysCount}/${activeDays}d)</small>`;
+        avg = `${h.typeDetails?.dailyAverage || 0} ${h.targetUnit || ''}/d`;
+      } else if (h.type === 'time_target') {
+        const hrs = h.typeDetails?.totalHours || 0;
+        const mins = h.typeDetails?.totalMinutes || 0;
+        prog = `${hrs >= 1 ? hrs + ' ક.' : mins + ' મ.'}<br><small>(${h.completedDaysCount}/${activeDays}d)</small>`;
+        avg = `${h.typeDetails?.dailyAverageMinutes || 0} મ./d`;
+      } else if (h.type === 'time_of_day') {
+        avg = `${h.typeDetails?.averageTime || 'N/A'}`;
+      } else if (h.type === 'yes_no' || h.type === 'boolean') {
+        prog = `<b>${h.completedDaysCount}</b>/${activeDays}`;
+        avg = `${comp}% હા.`;
+      }
+
+      return `
+        <tr class="${hi % 2 ? 'row-alt' : ''}">
+          <td class="td-htitle">${h.title}</td>
+          <td class="td-hprog">${prog}</td>
+          <td class="td-havg">${avg}</td>
+          <td class="td-hrate">
+            <div class="pb-wrap">
+              <div class="pb-track"><div class="pb-fill" style="width:${Math.min(Math.max(comp,0),100)}%;background:${barColor}"></div></div>
+              <span class="badge badge-${compClass}">${comp}%</span>
+            </div>
+          </td>
+        </tr>`;
+    }).join('');
+
+    return `
+      <div class="page member-page">
+        <div class="page-body">
+          <div class="topbar">
+            <div class="topbrand"><span class="topinvoc">॥ જય સ્વામિનારાયણ ॥</span> &bull; ${group.name || 'Sankalp Group'}</div>
+            <div class="toppage">પ. ${pageNum}/${totalPages}</div>
+          </div>
+
+          <div class="mcard">
+            <div class="mcard-left">
+              ${avatarHTML}
+              <div class="mcard-info">
+                <div class="mcard-nameline">
+                  <span class="mcard-name">${name}</span>
+                  <span class="pill-rank">ક્રમ #${i + 1}</span>
+                  ${username ? `<span class="pill-user">${username}</span>` : ''}
+                </div>
+                <div class="mcard-meta">
+                  <span class="tag">${group.name || 'Sankalp'}</span>
+                  <span class="tag">&#128197; ${monthName} ${yearStr}</span>
+                  <span class="tag tag-teal">&#127919; ${activeDays} દિ. સક્રિય</span>
+                </div>
+              </div>
+            </div>
+            <div class="mcard-kpis">
+              <div class="kpi kpi-green">
+                <div class="kpi-lbl">DISCIPLINE</div>
+                <div class="kpi-val">${score}<span>/${activeDays}</span></div>
+              </div>
+              <div class="kpi kpi-teal">
+                <div class="kpi-lbl">સફળ. દર</div>
+                <div class="kpi-val">${rate}%</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="habit-sec">
+            <div class="sec-hdr">
+              <div class="sec-hdr-l">
+                <span>&#128203;</span>
+                <div>
+                  <div class="sec-title">ગ્રુપ નિયમ પ્રગ.</div>
+                  <div class="sec-sub">${name} — ${monthName} ${yearStr}</div>
+                </div>
+              </div>
+              <div class="sec-month">${monthName} ${yearStr}</div>
+            </div>
+            <div class="tbl-box">
+              <table class="htbl">
+                <thead>
+                  <tr><th>નિયમ</th><th>કુ.પ./દિ.</th><th>સ.સ.</th><th>%</th></tr>
+                </thead>
+                <tbody>${habitRows}</tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="insight">
+            <div class="ins-ico">&#10022;</div>
+            <div>
+              <div class="ins-t">MONTHLY INSIGHT</div>
+              <div class="ins-d">${score} દિ. સંપૂ. નિ. &bull; સ.દ. ${rate}%</div>
+            </div>
+          </div>
+        </div>
+        <div class="footer">
+          <div>&#127775; <i>&#8220;નિ., ધ. અને સ.નું પ. એ ભ.ની સ. શો.&#8221;</i></div>
+          <div>જ. સ્. &#128591;</div>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `<!DOCTYPE html>
+<html lang="gu">
+<head>
+<meta charset="UTF-8">
+<title>${group.name || 'Sankalp'} Report ${monthStr}</title>
+<style>
+${fontsCSS}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{width:100%;background:#e2e8f0}
+body{font-family:'NotoGuj','Noto Sans Gujarati',sans-serif;color:#0f172a;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+
+@page{size:A4 portrait;margin:0}
+
+.page{width:210mm;min-height:297mm;background:#fff;margin:0 auto 10px;display:flex;flex-direction:column;page-break-after:always;overflow:hidden}
+.page:last-child{page-break-after:avoid}
+.page-body{flex:1;padding:14px 18px 8px;display:flex;flex-direction:column;gap:8px}
+
+/* TOP BAR */
+.topbar{display:flex;justify-content:space-between;align-items:center;padding-bottom:7px;border-bottom:1.5px solid #0f766e}
+.topbrand{font-size:9px;font-weight:700;color:#0f766e;display:flex;align-items:center;gap:5px}
+.topinvoc{font-size:10px;font-weight:900}
+.toppage{font-size:8px;color:#64748b;font-weight:800}
+
+/* COVER DIVINE */
+.divine{text-align:center;padding:6px 0 4px}
+.divine-s{font-size:9px;color:#0f766e;font-weight:700}
+.divine-m{font-size:16px;font-weight:900;color:#134e4a;margin-top:2px}
+
+/* HERO */
+.hero{display:flex;justify-content:space-between;align-items:center;background:linear-gradient(135deg,#134e4a,#0f766e);border-radius:10px;padding:14px 18px}
+.hero-title{font-size:17px;font-weight:900;color:#fff}
+.hero-sub{font-size:9px;color:rgba(255,255,255,.85);margin-top:3px}
+.hero-date{font-size:10px;font-weight:800;color:#ccfbf1;background:rgba(255,255,255,.15);padding:6px 10px;border-radius:6px}
+
+/* STAT CARDS */
+.statgrid{display:flex;gap:8px}
+.statcard{flex:1;border-radius:8px;padding:10px 12px;border:1.5px solid}
+.statcard-g{background:#f0fdf4;border-color:#a7f3d0}
+.statcard-t{background:#f0fdfa;border-color:#99f6e4}
+.stat-lbl{font-size:7.5px;font-weight:900;color:#166534;letter-spacing:.4px;text-transform:uppercase}
+.statcard-t .stat-lbl{color:#0f766e}
+.stat-val{font-size:15px;font-weight:900;color:#14532d;margin-top:3px}
+.statcard-t .stat-val{color:#134e4a}
+
+/* TABLE */
+.tbl-box{border:1px solid #e2e8f0;border-radius:8px;overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:8.5px}
+thead tr{background:#0f766e;color:#fff}
+thead th{padding:7px 8px;font-weight:900;text-align:left;font-size:8.5px}
+
+/* LEADERBOARD */
+td{padding:5px 8px;border-bottom:1px solid #e2e8f0;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+.row-alt{background:#f8fafc}
+.td-rank{font-size:9px;font-weight:900;width:56px}
+.rank-gold{color:#92400e}
+.rank-silver{color:#475569}
+.rank-bronze{color:#b45309}
+.rank-normal{color:#334155}
+.td-name{width:44%}
+.td-score{text-align:center;font-size:11px;font-weight:900;color:#134e4a;width:17%}
+.td-pct{text-align:center;width:14%}
+
+/* NAME ROW */
+.name-row{display:flex;align-items:center;gap:6px}
+
+/* AVATAR */
+.av-sm{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#134e4a);flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.av-sm img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.av-init{font-size:11px;font-weight:900;color:#fff}
+.av-lg{width:58px;height:58px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#134e4a);flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.av-lg img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+.av-init-lg{font-size:22px;font-weight:900;color:#fff}
+
+/* BADGE */
+.badge{display:inline-block;padding:2px 7px;border-radius:999px;font-size:8px;font-weight:900}
+.badge-high{background:#dcfce7;color:#166534}
+.badge-mid{background:#fef9c3;color:#854d0e}
+.badge-low{background:#fee2e2;color:#991b1b}
+
+/* MEMBER CARD */
+.mcard{display:flex;justify-content:space-between;align-items:flex-start;background:#f8fafc;border:1px solid #cbd5e1;border-radius:10px;padding:10px 12px;box-shadow:0 1px 4px rgba(15,23,42,.045)}
+.mcard-left{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.mcard-info{min-width:0}
+.mcard-nameline{display:flex;align-items:center;flex-wrap:wrap;gap:5px}
+.mcard-name{font-size:15px;font-weight:900;color:#020617}
+.pill-rank{display:inline-flex;align-items:center;background:#134e4a;color:#ccfbf1;border:1px solid #0f766e;border-radius:999px;padding:2px 7px;font-size:8px;font-weight:900}
+.pill-user{display:inline-flex;align-items:center;background:#f1f5f9;color:#475569;border:1px solid #cbd5e1;border-radius:999px;padding:2px 7px;font-size:8px;font-weight:800}
+.mcard-meta{display:flex;flex-wrap:wrap;gap:4px;margin-top:5px}
+.tag{display:inline-flex;align-items:center;padding:2px 6px;border-radius:5px;background:#f8fafc;border:1px solid #dbe3ec;color:#334155;font-size:8px;font-weight:800}
+.tag-teal{color:#115e59;background:#f0fdfa;border-color:#99f6e4}
+.mcard-kpis{display:flex;gap:6px;flex-shrink:0}
+.kpi{min-width:80px;padding:7px 10px;border-radius:8px;text-align:center;border:1.5px solid}
+.kpi-green{background:#f0fdf4;border-color:#86efac}
+.kpi-teal{background:#f0fdfa;border-color:#5eead4}
+.kpi-lbl{font-size:6.5px;font-weight:900;color:#166534;letter-spacing:.3px;text-transform:uppercase}
+.kpi-teal .kpi-lbl{color:#115e59}
+.kpi-val{margin-top:3px;font-size:15px;font-weight:900;color:#14532d;line-height:1}
+.kpi-teal .kpi-val{color:#134e4a}
+.kpi-val span{font-size:8px;font-weight:800;opacity:.7}
+
+/* HABIT SECTION */
+.habit-sec{flex:1}
+.sec-hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:5px}
+.sec-hdr-l{display:flex;align-items:flex-start;gap:6px}
+.sec-title{font-size:10px;font-weight:900;color:#0f172a}
+.sec-sub{font-size:7.5px;color:#64748b;font-weight:600;margin-top:1px}
+.sec-month{font-size:8px;font-weight:800;color:#0f766e;background:#f0fdfa;border:1px solid #99f6e4;padding:3px 7px;border-radius:5px}
+.td-htitle{width:31%;font-weight:900;color:#0f172a}
+.td-hprog{width:29%;color:#134e4a;font-weight:700}
+.td-havg{width:22%;color:#475569;font-weight:700}
+.td-hrate{width:18%}
+.htbl thead th{background:#0f766e;color:#fff}
+
+/* PROGRESS BAR */
+.pb-wrap{display:flex;align-items:center;gap:5px}
+.pb-track{width:50px;height:6px;background:#e2e8f0;border-radius:999px;overflow:hidden}
+.pb-fill{height:100%;border-radius:999px}
+
+/* INSIGHT */
+.insight{display:flex;align-items:center;gap:8px;padding:7px 10px;background:linear-gradient(135deg,#f0fdfa,#f8fafc);border:1px solid #99f6e4;border-radius:8px}
+.ins-ico{width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:#ccfbf1;color:#0f766e;border-radius:6px;font-size:12px;flex-shrink:0}
+.ins-t{font-size:7px;font-weight:900;color:#0f766e;text-transform:uppercase;letter-spacing:.3px}
+.ins-d{font-size:8px;color:#475569;font-weight:600;margin-top:2px}
+
+/* FOOTER */
+.footer{display:flex;justify-content:space-between;align-items:center;padding:6px 18px 8px;border-top:1px solid #cbd5e1;background:#f8fafc;font-size:8px;color:#475569;font-weight:700}
+.footer>div:last-child{color:#0f766e;font-weight:900;white-space:nowrap}
+
+/* LEADERBOARD SECTION FLEX */
+.lb-sec{flex:1;display:flex;flex-direction:column}
+
+@media print{
+  body{background:#fff}
+  .page{margin:0;box-shadow:none;page-break-after:always}
+  .page:last-child{page-break-after:avoid}
+}
+</style>
+</head>
+<body>
+
+<!-- PAGE 1: COVER -->
+<div class="page">
+  <div class="page-body">
+    <div class="divine">
+      <div class="divine-s">॥ શ્રી સ્વામિનારાયણો વિજયતે ॥</div>
+      <div class="divine-m">॥ જય સ્વામિનારાયણ ॥</div>
+    </div>
+
+    <div class="topbar" style="margin-top:4px">
+      <div class="topbrand">${group.name || 'Sankalp Group'} &bull; માસ. અહ.</div>
+      <div class="toppage">પ. ૧/${memberReports.length + 1}</div>
+    </div>
+
+    <div class="hero">
+      <div>
+        <div class="hero-title">${group.name || 'Sankalp Group'}</div>
+        <div class="hero-sub">માસ. પ્ર. અહ. &amp; લીડ.</div>
+      </div>
+      <div class="hero-date">&#128197; ${monthName} ${yearStr}</div>
+    </div>
+
+    <div class="statgrid">
+      <div class="statcard statcard-g">
+        <div class="stat-lbl">કુ. સ.</div>
+        <div class="stat-val">${totalMembers} સ.</div>
+      </div>
+      <div class="statcard statcard-t">
+        <div class="stat-lbl">સ. સ. દ.</div>
+        <div class="stat-val">${avgCompletion}%</div>
+      </div>
+    </div>
+
+    <div class="lb-sec">
+      <div class="sec-hdr">
+        <div class="sec-hdr-l">
+          <span>&#127942;</span>
+          <div>
+            <div class="sec-title">માસ. લીડ. ક્ર.</div>
+            <div class="sec-sub">ગ.સ. ની નિ.પ.પ્ર.</div>
+          </div>
+        </div>
+        <div class="sec-month">${monthName} ${yearStr}</div>
+      </div>
+      <div class="tbl-box">
+        <table>
+          <thead><tr><th>ક્ર.</th><th>સ. નામ</th><th style="text-align:center">સ્.(દ.)</th><th style="text-align:center">સ.%</th></tr></thead>
+          <tbody>${lbRows}</tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div class="footer">
+    <div>જ. સ્. &bull; સ. હ. ટ્ . &bull; habitsankalp.netlify.app</div>
+    <div>&#128591;</div>
+  </div>
+</div>
+
+<!-- PAGES 2..N: MEMBERS -->
+${memberPages}
+
+</body>
+</html>`;
+};
+
+// ─── 6. PDFKit Fallback ───────────────────────────────────────────────────────
 const generatePDFKitReport = (group, monthStr, memberReports) => {
   return new Promise((resolve, reject) => {
     try {
       const [yearStr, monthNumStr] = (monthStr || '').split('-');
       const monthNum = parseInt(monthNumStr, 10);
       const monthName = MONTH_NAMES[monthNum - 1] || monthStr;
-
       const totalMembers = memberReports.length;
-      const avgCompletion =
-        totalMembers > 0
-          ? Math.round(
-              memberReports.reduce((s, m) => s + (m.overallStats?.overallCompletionRate || 0), 0) / totalMembers
-            )
-          : 0;
+      const avgComp = totalMembers > 0
+        ? Math.round(memberReports.reduce((s, m) => s + (m.overallStats?.overallCompletionRate || 0), 0) / totalMembers)
+        : 0;
 
-      const cleanGroupName = (group.name || 'Sankalp Group')
+      const cleanName = (group.name || 'Sankalp Group')
         .replace(/[\u{1F300}-\u{1FAFF}\u{1F900}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '')
         .trim();
 
       const doc = new PDFDocument({
-        size: 'A4',
-        margin: 36,
-        bufferPages: true,
-        info: {
-          Title: `${cleanGroupName} Monthly Report - ${monthStr}`,
-          Author: 'Sankalp Habit Tracker'
-        }
+        size: 'A4', margin: 36, bufferPages: true,
+        info: { Title: `${cleanName} Report ${monthStr}`, Author: 'Sankalp Habit Tracker' }
       });
 
-      const fontRegPath = findFontPath('NotoSansGujarati-Regular.ttf');
-      const fontBoldPath = findFontPath('NotoSansGujarati-Bold.ttf');
-
-      let hasGujaratiFont = false;
-      if (fontRegPath && fontBoldPath) {
-        doc.registerFont('Gujarati', fontRegPath);
-        doc.registerFont('Gujarati-Bold', fontBoldPath);
-        hasGujaratiFont = true;
+      const regPath  = findFontPath('NotoSansGujarati-Regular.ttf');
+      const boldPath = findFontPath('NotoSansGujarati-Bold.ttf');
+      let hasFont = false;
+      if (regPath && boldPath) {
+        doc.registerFont('Guj', regPath);
+        doc.registerFont('GujB', boldPath);
+        hasFont = true;
+        console.log('[PDF Fallback] Gujarati fonts loaded from disk');
+      } else {
+        console.warn('[PDF Fallback] Gujarati fonts NOT found — text may render as boxes on Render');
       }
+      const fR = hasFont ? 'Guj' : 'Helvetica';
+      const fB = hasFont ? 'GujB' : 'Helvetica-Bold';
 
-      const fontRegular = hasGujaratiFont ? 'Gujarati' : 'Helvetica';
-      const fontBold = hasGujaratiFont ? 'Gujarati-Bold' : 'Helvetica-Bold';
+      const buf = [];
+      doc.on('data', c => buf.push(c));
+      doc.on('end', () => resolve(Buffer.concat(buf)));
+      doc.on('error', reject);
 
-      const buffers = [];
-      doc.on('data', (chunk) => buffers.push(chunk));
-      doc.on('end', () => resolve(Buffer.concat(buffers)));
-      doc.on('error', (err) => reject(err));
+      const W = doc.page.width, H = doc.page.height;
 
-      // PAGE 1: COVER & LEADERBOARD
-      doc.rect(0, 0, doc.page.width, doc.page.height).fill('#ffffff');
-
-      // Top Bar
-      doc.font(fontBold).fillColor('#0f766e').fontSize(11).text('॥ જય સ્વામિનારાયણ ॥', 36, 30);
-      doc.font(fontRegular).fillColor('#64748b').fontSize(10).text(`${cleanGroupName} • માસિક અહેવાલ`, 200, 30, { align: 'right', width: 350 });
+      // PAGE 1
+      doc.rect(0, 0, W, H).fill('#ffffff');
+      doc.font(fB).fillColor('#0f766e').fontSize(11).text('॥ જય સ્વામિ. ॥', 36, 30);
+      doc.font(fR).fillColor('#64748b').fontSize(9).text(`${cleanName} - માસ. અહ.`, 220, 30, { align: 'right', width: 330 });
       doc.moveTo(36, 46).lineTo(559, 46).strokeColor('#0f766e').lineWidth(1.5).stroke();
 
-      // Title Banner
-      doc.moveDown(0.8);
-      doc.font(fontBold).fillColor('#134e4a').fontSize(19).text(cleanGroupName, { align: 'center' });
-      doc.font(fontRegular).fillColor('#0f766e').fontSize(11).text(`માસિક પ્રગતિ અહેવાલ — ${monthName} ${yearStr}`, { align: 'center' });
-      doc.moveDown(0.8);
+      doc.font(fB).fillColor('#134e4a').fontSize(17).text(cleanName, 36, 58, { align: 'center' });
+      doc.font(fR).fillColor('#0f766e').fontSize(10).text(`${monthName} ${yearStr} — માસ. પ્ર. અહ.`, { align: 'center' });
 
-      // Summary Cards
-      const cardY = 120;
-      doc.roundedRect(36, cardY, 160, 50, 6).fillAndStroke('#f0fdf4', '#a7f3d0');
-      doc.font(fontBold).fillColor('#166534').fontSize(8.5).text('કુલ સભ્યો', 46, cardY + 10);
-      doc.font(fontBold).fillColor('#14532d').fontSize(15).text(`${totalMembers} સભ્યો`, 46, cardY + 24);
+      // Stat cards
+      doc.roundedRect(36, 115, 155, 46, 5).fillAndStroke('#f0fdf4', '#a7f3d0');
+      doc.font(fB).fillColor('#166534').fontSize(7.5).text('કુ.સ.', 46, 124);
+      doc.font(fB).fillColor('#14532d').fontSize(14).text(`${totalMembers} સ.`, 46, 135);
 
-      doc.roundedRect(210, cardY, 160, 50, 6).fillAndStroke('#f0fdfa', '#99f6e4');
-      doc.font(fontBold).fillColor('#0f766e').fontSize(8.5).text('સરેરાશ સફળતા દર', 220, cardY + 10);
-      doc.font(fontBold).fillColor('#134e4a').fontSize(15).text(`${avgCompletion}%`, 220, cardY + 24);
+      doc.roundedRect(205, 115, 155, 46, 5).fillAndStroke('#f0fdfa', '#99f6e4');
+      doc.font(fB).fillColor('#0f766e').fontSize(7.5).text('સ.સ.દ.', 215, 124);
+      doc.font(fB).fillColor('#134e4a').fontSize(14).text(`${avgComp}%`, 215, 135);
 
-      doc.roundedRect(385, cardY, 174, 50, 6).fillAndStroke('#fefce8', '#fde047');
-      doc.font(fontBold).fillColor('#854d0e').fontSize(8.5).text('મહિનો / વર્ષ', 395, cardY + 10);
-      doc.font(fontBold).fillColor('#713f12').fontSize(15).text(`${monthName} ${yearStr}`, 395, cardY + 24);
+      doc.roundedRect(374, 115, 185, 46, 5).fillAndStroke('#fefce8', '#fde047');
+      doc.font(fB).fillColor('#854d0e').fontSize(7.5).text('મ./વ.', 384, 124);
+      doc.font(fB).fillColor('#713f12').fontSize(14).text(`${monthName} ${yearStr}`, 384, 135);
 
-      // Leaderboard Table Header
-      const tableTop = 190;
-      doc.font(fontBold).fillColor('#0f172a').fontSize(13).text('માસિક લીડરબોર્ડ રેન્કિંગ', 36, tableTop);
-      doc.font(fontRegular).fillColor('#64748b').fontSize(8.5).text('સભ્યોની માસિક નિયમ પાલન પ્રગતિ', 36, tableTop + 16);
+      // Leaderboard
+      doc.font(fB).fillColor('#0f172a').fontSize(12).text('માસ. ક્ર.', 36, 178);
+      const hY = 196;
+      doc.rect(36, hY, 523, 22).fill('#0f766e');
+      doc.font(fB).fillColor('#ffffff').fontSize(9).text('ક્ર.', 46, hY + 6);
+      doc.text('સ. નામ', 100, hY + 6);
+      doc.text('સ્.(દ.)', 360, hY + 6, { align: 'center', width: 90 });
+      doc.text('સ.%', 465, hY + 6, { align: 'center', width: 80 });
 
-      const headerY = tableTop + 34;
-      doc.rect(36, headerY, 523, 24).fill('#0f766e');
-      doc.font(fontBold).fillColor('#ffffff').fontSize(9.5);
-      doc.text('ક્રમ', 46, headerY + 7);
-      doc.text('સભ્યનું નામ', 110, headerY + 7);
-      doc.text('સ્કોર (દિવસ)', 360, headerY + 7, { align: 'center', width: 90 });
-      doc.text('સફળતા %', 470, headerY + 7, { align: 'center', width: 80 });
-
-      let currentY = headerY + 24;
-      memberReports.forEach((m, idx) => {
-        const rowBg = idx % 2 === 1 ? '#f8fafc' : '#ffffff';
-        doc.rect(36, currentY, 523, 24).fill(rowBg);
-
-        const rankBadge = idx === 0 ? '1 (ગોલ્ડ)' : idx === 1 ? '2 (સિલ્વર)' : idx === 2 ? '3 (બ્રોન્ઝ)' : `${idx + 1}`;
-        doc.font(fontBold).fillColor('#1e293b').fontSize(8.5);
-        doc.text(rankBadge, 46, currentY + 7);
-        doc.font(fontRegular).text(m.userProfile?.name || 'Unknown', 110, currentY + 7);
-        doc.font(fontBold).text(`${m.overallStats?.disciplineScore || 0} દિવસ`, 360, currentY + 7, { align: 'center', width: 90 });
-        doc.font(fontBold).text(`${m.overallStats?.overallCompletionRate || 0}%`, 470, currentY + 7, { align: 'center', width: 80 });
-
-        doc.moveTo(36, currentY + 24).lineTo(559, currentY + 24).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
-        currentY += 24;
+      let cy = hY + 22;
+      memberReports.forEach((m, i) => {
+        doc.rect(36, cy, 523, 22).fill(i % 2 ? '#f8fafc' : '#ffffff');
+        const rk = i === 0 ? '1 (' + 'ગો.)' : i === 1 ? '2 (સ.)' : i === 2 ? '3 (બ.)' : `${i + 1}`;
+        doc.font(fB).fillColor('#1e293b').fontSize(8.5).text(rk, 46, cy + 6);
+        doc.font(fR).text(m.userProfile?.name || 'Unknown', 100, cy + 6);
+        doc.font(fB).text(`${m.overallStats?.disciplineScore || 0}d`, 360, cy + 6, { align: 'center', width: 90 });
+        doc.text(`${m.overallStats?.overallCompletionRate || 0}%`, 465, cy + 6, { align: 'center', width: 80 });
+        doc.moveTo(36, cy + 22).lineTo(559, cy + 22).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
+        cy += 22;
       });
 
-      // Bottom Footer for Cover
-      doc.moveTo(36, 780).lineTo(559, 780).strokeColor('#0f766e').lineWidth(1).stroke();
-      doc.font(fontRegular).fillColor('#64748b').fontSize(8.5).text('જય સ્વામિનારાયણ • સંકલ્પ હેબિટ ટ્રેકર', 36, 790);
-      doc.text('પેજ 1', 500, 790, { align: 'right' });
+      doc.moveTo(36, H - 28).lineTo(559, H - 28).strokeColor('#0f766e').lineWidth(1).stroke();
+      doc.font(fR).fillColor('#64748b').fontSize(8).text('જ.સ્. • habitsankalp.netlify.app', 36, H - 18);
 
-      // PAGES 2..N: INDIVIDUAL MEMBER REPORTS
-      memberReports.forEach((report, idx) => {
+      // Member pages
+      memberReports.forEach((report, i) => {
         doc.addPage();
-        const memberName = report.userProfile?.name || 'સભ્ય';
-        const memberUsername = report.userProfile?.username ? `@${report.userProfile.username}` : '';
-        const activeDays = report.activeDaysInMonth || 30;
-        const disciplineScore = report.overallStats?.disciplineScore || 0;
-        const completionRate = report.overallStats?.overallCompletionRate || 0;
-        const pageNum = idx + 2;
+        doc.rect(0, 0, W, H).fill('#ffffff');
+        const name    = report.userProfile?.name || 'સ.';
+        const uname   = report.userProfile?.username ? `@${report.userProfile.username}` : '';
+        const aDays   = report.activeDaysInMonth || 30;
+        const sc      = report.overallStats?.disciplineScore || 0;
+        const rt      = report.overallStats?.overallCompletionRate || 0;
+        const pg      = i + 2;
 
-        // Top Header
-        doc.font(fontBold).fillColor('#0f766e').fontSize(11).text('॥ જય સ્વામિનારાયણ ॥', 36, 30);
-        doc.font(fontRegular).fillColor('#64748b').fontSize(9.5).text(`${cleanGroupName} • પેજ ${pageNum} / ${totalMembers + 1}`, 200, 30, { align: 'right', width: 350 });
-        doc.moveTo(36, 46).lineTo(559, 46).strokeColor('#0f766e').lineWidth(1.5).stroke();
+        doc.font(fB).fillColor('#0f766e').fontSize(10).text('॥ જ.સ્. ॥', 36, 30);
+        doc.font(fR).fillColor('#64748b').fontSize(8.5).text(`${cleanName} • પ.${pg}/${totalMembers+1}`, 220, 30, { align: 'right', width: 330 });
+        doc.moveTo(36, 44).lineTo(559, 44).strokeColor('#0f766e').lineWidth(1.5).stroke();
 
-        // Member Header Card
-        const mCardY = 58;
-        doc.roundedRect(36, mCardY, 523, 75, 8).fillAndStroke('#f8fafc', '#cbd5e1');
+        const mY = 52;
+        doc.roundedRect(36, mY, 523, 68, 7).fillAndStroke('#f8fafc', '#cbd5e1');
+        doc.font(fB).fillColor('#020617').fontSize(14).text(name, 50, mY + 10);
+        if (uname) doc.font(fR).fillColor('#64748b').fontSize(9).text(uname, 50, mY + 28);
+        doc.font(fR).fillColor('#0f766e').fontSize(8.5).text(`ક્.#${i+1}  •  ${aDays} દ.  •  ${monthName} ${yearStr}`, 50, mY + 44);
 
-        doc.font(fontBold).fillColor('#0f172a').fontSize(15).text(memberName, 50, mCardY + 11);
-        if (memberUsername) {
-          doc.font(fontRegular).fillColor('#64748b').fontSize(9.5).text(memberUsername, 50, mCardY + 31);
-        }
-        doc.font(fontRegular).fillColor('#0f766e').fontSize(9).text(`રેન્ક #${idx + 1}  •  સક્રિય દિવસો: ${activeDays}d  •  મહિનો: ${monthName} ${yearStr}`, 50, mCardY + 48);
+        doc.roundedRect(350, mY + 8, 88, 50, 5).fillAndStroke('#f0fdf4', '#86efac');
+        doc.font(fB).fillColor('#166534').fontSize(7).text('DISCIPLINE', 350, mY + 15, { align: 'center', width: 88 });
+        doc.font(fB).fillColor('#14532d').fontSize(12).text(`${sc}/${aDays}`, 350, mY + 28, { align: 'center', width: 88 });
 
-        // Member KPI Pills
-        doc.roundedRect(355, mCardY + 10, 90, 55, 6).fillAndStroke('#f0fdf4', '#86efac');
-        doc.font(fontBold).fillColor('#166534').fontSize(7.5).text('નિયમ પાલન સ્કોર', 355, mCardY + 17, { align: 'center', width: 90 });
-        doc.font(fontBold).fillColor('#14532d').fontSize(13).text(`${disciplineScore}/${activeDays}`, 355, mCardY + 31, { align: 'center', width: 90 });
+        doc.roundedRect(448, mY + 8, 88, 50, 5).fillAndStroke('#f0fdfa', '#5eead4');
+        doc.font(fB).fillColor('#115e59').fontSize(7).text('સ.દ.', 448, mY + 15, { align: 'center', width: 88 });
+        doc.font(fB).fillColor('#134e4a').fontSize(12).text(`${rt}%`, 448, mY + 28, { align: 'center', width: 88 });
 
-        doc.roundedRect(455, mCardY + 10, 90, 55, 6).fillAndStroke('#f0fdfa', '#5eead4');
-        doc.font(fontBold).fillColor('#115e59').fontSize(7.5).text('સફળતા દર', 455, mCardY + 17, { align: 'center', width: 90 });
-        doc.font(fontBold).fillColor('#134e4a').fontSize(13).text(`${completionRate}%`, 455, mCardY + 31, { align: 'center', width: 90 });
+        // Habit table
+        const htY = 136;
+        doc.font(fB).fillColor('#0f172a').fontSize(11).text('ગ્રુ. નિ. પ્ર.', 36, htY);
+        const hhY = htY + 17;
+        doc.rect(36, hhY, 523, 21).fill('#0f766e');
+        doc.font(fB).fillColor('#ffffff').fontSize(8.5);
+        doc.text('નિ.', 46, hhY + 5);
+        doc.text('કુ.પ./દ.', 240, hhY + 5);
+        doc.text('સ.સ.', 380, hhY + 5);
+        doc.text('સ.%', 485, hhY + 5);
 
-        // Habit Table
-        const hTableY = 150;
-        doc.font(fontBold).fillColor('#0f172a').fontSize(12.5).text('ગ્રુપ નિયમ પ્રગતિ વિગત', 36, hTableY);
-
-        const hHeaderY = hTableY + 20;
-        doc.rect(36, hHeaderY, 523, 22).fill('#0f766e');
-        doc.font(fontBold).fillColor('#ffffff').fontSize(9);
-        doc.text('નિયમનું નામ', 46, hHeaderY + 6);
-        doc.text('કુલ પ્રગતિ / દિવસો', 240, hHeaderY + 6);
-        doc.text('રોજિંદી સરેરાશ', 380, hHeaderY + 6);
-        doc.text('સફળતા %', 485, hHeaderY + 6);
-
-        let hRowY = hHeaderY + 22;
-        (report.habitSummaries || []).forEach((h, hIdx) => {
-          const rowBg = hIdx % 2 === 1 ? '#f8fafc' : '#ffffff';
-          doc.rect(36, hRowY, 523, 26).fill(rowBg);
-
-          let progressStr = `${h.completedDaysCount} / ${activeDays} દિવસ`;
-          let avgStr = '-';
-
+        let hry = hhY + 21;
+        (report.habitSummaries || []).forEach((h, hi) => {
+          doc.rect(36, hry, 523, 24).fill(hi % 2 ? '#f8fafc' : '#ffffff');
+          let pg2 = `${h.completedDaysCount}/${aDays} d`;
+          let av = '-';
           if (h.type === 'count') {
-            const unit = h.targetUnit || '';
-            progressStr = `${h.typeDetails?.totalCount || 0} ${unit} (${h.completedDaysCount}d)`;
-            avgStr = `રોજ ${h.typeDetails?.dailyAverage || 0} ${unit}`;
+            pg2 = `${h.typeDetails?.totalCount || 0} ${h.targetUnit || ''} (${h.completedDaysCount}d)`;
+            av = `${h.typeDetails?.dailyAverage || 0}/d`;
           } else if (h.type === 'time_target') {
-            const hrs = h.typeDetails?.totalHours || 0;
-            const mins = h.typeDetails?.totalMinutes || 0;
-            progressStr = hrs >= 1 ? `${hrs} કલાક (${h.completedDaysCount}d)` : `${mins} મિનિટ (${h.completedDaysCount}d)`;
-            avgStr = `રોજ ${h.typeDetails?.dailyAverageMinutes || 0} મિનિટ`;
+            const hrs2 = h.typeDetails?.totalHours || 0;
+            const min2 = h.typeDetails?.totalMinutes || 0;
+            pg2 = (hrs2 >= 1 ? `${hrs2}h` : `${min2}m`) + ` (${h.completedDaysCount}d)`;
+            av = `${h.typeDetails?.dailyAverageMinutes || 0}m/d`;
           } else if (h.type === 'time_of_day') {
-            avgStr = `સરેરાશ: ${h.typeDetails?.averageTime || 'N/A'}`;
+            av = h.typeDetails?.averageTime || 'N/A';
           }
-
-          doc.font(fontRegular).fillColor('#0f172a').fontSize(8.5).text(h.title, 46, hRowY + 7, { width: 190, lineBreak: false });
-          doc.fillColor('#334155').fontSize(8.5).text(progressStr, 240, hRowY + 7);
-          doc.fillColor('#475569').fontSize(8.5).text(avgStr, 380, hRowY + 7);
-          doc.font(fontBold).fillColor(h.completionPercentage >= 80 ? '#166534' : h.completionPercentage >= 50 ? '#854d0e' : '#991b1b')
-            .fontSize(9)
-            .text(`${h.completionPercentage || 0}%`, 485, hRowY + 7);
-
-          doc.moveTo(36, hRowY + 26).lineTo(559, hRowY + 26).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
-          hRowY += 26;
+          doc.font(fR).fillColor('#0f172a').fontSize(8.5).text(h.title, 46, hry + 6, { width: 188, lineBreak: false });
+          doc.fillColor('#334155').text(pg2, 240, hry + 6);
+          doc.fillColor('#475569').text(av, 380, hry + 6);
+          const pct = h.completionPercentage || 0;
+          doc.font(fB).fillColor(pct >= 80 ? '#166534' : pct >= 50 ? '#854d0e' : '#991b1b').fontSize(9).text(`${pct}%`, 485, hry + 6);
+          doc.moveTo(36, hry + 24).lineTo(559, hry + 24).strokeColor('#e2e8f0').lineWidth(0.5).stroke();
+          hry += 24;
         });
 
-        // Footer
-        doc.moveTo(36, 780).lineTo(559, 780).strokeColor('#0f766e').lineWidth(1).stroke();
-        doc.font(fontRegular).fillColor('#64748b').fontSize(8.5).text('જય સ્વામિનારાયણ • સંકલ્પ હેબિટ ટ્રેકર', 36, 790);
-        doc.text(`પેજ ${pageNum} / ${totalMembers + 1}`, 450, 790, { align: 'right', width: 100 });
+        doc.moveTo(36, H - 28).lineTo(559, H - 28).strokeColor('#0f766e').lineWidth(1).stroke();
+        doc.font(fR).fillColor('#64748b').fontSize(8).text('જ.સ্. • habitsankalp.netlify.app', 36, H - 18);
+        doc.font(fB).text(`પ.${pg}/${totalMembers+1}`, 450, H - 18, { align: 'right', width: 100 });
       });
 
       doc.end();
-    } catch (err) {
-      reject(err);
-    }
+    } catch (err) { reject(err); }
   });
 };
 
-/**
- * Generate PDF using Chromium (Puppeteer)
- * with robust multi-tier launch and PDFKit fallback
- */
-export const generateGroupMonthlyReportPDF = async (
-  group,
-  monthStr,
-  memberReports
-) => {
+// ─── 7. Main Export ───────────────────────────────────────────────────────────
+export const generateGroupMonthlyReportPDF = async (group, monthStr, memberReports) => {
   let browser = null;
 
-  try {
-    browser = await launchBrowser();
-  } catch (launchErr) {
-    console.warn('⚠️ [PDF Generator] Browser launch error:', launchErr.message);
-  }
+  try { browser = await launchBrowser(); }
+  catch (e) { console.warn('[PDF] Browser launch error:', e.message); }
 
   if (browser) {
     try {
-      console.log('🚀 [PDF Generator] Rendering rich HTML report in Chromium...');
+      console.log('[PDF] Rendering HTML in Chromium...');
       const page = await browser.newPage();
 
-      const htmlContent = buildReportHTML(
-        group,
-        monthStr,
-        memberReports
-      );
+      const html = buildReportHTML(group, monthStr, memberReports);
 
-      await page.setContent(htmlContent, {
-        waitUntil: 'networkidle0',
-        timeout: 30000
-      });
-
-      // Small pause to allow webfonts & styles to settle
-      await new Promise((r) => setTimeout(r, 600));
-
-      // Wait for all images to settle
-      await page.evaluate(async () => {
-        const images = Array.from(document.images);
-        await Promise.all(
-          images.map((img) => {
-            if (img.complete) return Promise.resolve();
-            return new Promise((resolve) => {
-              img.addEventListener('load', resolve, { once: true });
-              img.addEventListener('error', resolve, { once: true });
-            });
-          })
-        );
-      });
-
-      // Wait for fonts
-      await page.evaluate(async () => {
-        if (document.fonts?.ready) {
-          await document.fonts.ready;
+      // Block external HTTP font/stylesheet requests — fonts are all inlined
+      await page.setRequestInterception(true);
+      page.on('request', req => {
+        const type = req.resourceType();
+        if ((type === 'font' || type === 'stylesheet') && req.url().startsWith('http')) {
+          req.abort();
+        } else {
+          req.continue();
         }
       });
 
-      const pdfBuffer = await page.pdf({
+      await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+      // Wait for embedded @font-face fonts to be ready
+      await page.evaluate(async () => {
+        if (document.fonts?.ready) await document.fonts.ready;
+      });
+
+      // Wait for avatar images to load/fail
+      await page.evaluate(async () => {
+        const imgs = Array.from(document.images);
+        await Promise.all(imgs.map(img => img.complete
+          ? Promise.resolve()
+          : new Promise(r => {
+              img.addEventListener('load', r, { once: true });
+              img.addEventListener('error', r, { once: true });
+            })
+        ));
+      });
+
+      const pdfBuf = await page.pdf({
         format: 'A4',
         printBackground: true,
-        margin: {
-          top: '0px',
-          right: '0px',
-          bottom: '0px',
-          left: '0px'
-        },
+        margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
         preferCSSPageSize: true
       });
 
       await browser.close();
-
-      console.log(
-        `✅ [PDF Generator] Created professional Chromium PDF (${pdfBuffer.length} bytes / ${(pdfBuffer.length / 1024).toFixed(2)} KB).`
-      );
-
-      return Buffer.from(pdfBuffer);
-    } catch (browserErr) {
-      console.error(
-        '❌ Chromium PDF generation error, falling back to PDFKit:',
-        browserErr.message
-      );
-      if (browser) {
-        try {
-          await browser.close();
-        } catch (_) {}
-      }
+      console.log(`[PDF] Chromium PDF ready: ${(pdfBuf.length / 1024).toFixed(1)} KB`);
+      return Buffer.from(pdfBuf);
+    } catch (err) {
+      console.error('[PDF] Chromium failed, falling back to PDFKit:', err.message);
+      try { await browser.close(); } catch (_) {}
     }
   }
 
-  // Fallback to comprehensive multi-page PDFKit generator
-  console.log('📄 [PDF Generator] Falling back to comprehensive PDFKit multi-page report generator...');
-  const fallbackBuffer = await generatePDFKitReport(group, monthStr, memberReports);
-  console.log(`✅ [PDF Generator] Created comprehensive PDFKit fallback PDF (${fallbackBuffer.length} bytes / ${(fallbackBuffer.length / 1024).toFixed(2)} KB).`);
-  return fallbackBuffer;
+  console.log('[PDF] Falling back to PDFKit...');
+  const fallbackBuf = await generatePDFKitReport(group, monthStr, memberReports);
+  console.log(`[PDF] PDFKit fallback ready: ${(fallbackBuf.length / 1024).toFixed(1)} KB`);
+  return fallbackBuf;
 };
