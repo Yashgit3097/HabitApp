@@ -778,20 +778,12 @@ export const downloadGroupMonthlyReportPDF = async (req, res) => {
     const now = new Date();
     const targetMonthStr = req.query.month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
-    const allMonthlyReports = await collections.monthlyReports.find();
-    const groupReports = allMonthlyReports.filter(
-      (r) => (r.groupId || '').toString() === groupId.toString() && r.month === targetMonthStr
-    );
+    const { compileGroupMonthlyReports } = await import('../../services/telegramService.js');
+    const groupReports = await compileGroupMonthlyReports(group, targetMonthStr);
 
     if (groupReports.length === 0) {
       return res.status(404).json({ success: false, message: `No reports found for ${targetMonthStr}` });
     }
-
-    groupReports.sort(
-      (a, b) =>
-        (b.overallStats?.disciplineScore || 0) - (a.overallStats?.disciplineScore || 0) ||
-        (b.overallStats?.overallCompletionRate || 0) - (a.overallStats?.overallCompletionRate || 0)
-    );
 
     const { generateGroupMonthlyReportPDF } = await import('../../services/pdfReportService.js');
     const pdfBuffer = await generateGroupMonthlyReportPDF(group, targetMonthStr, groupReports);

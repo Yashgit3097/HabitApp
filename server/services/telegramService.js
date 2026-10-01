@@ -110,42 +110,207 @@ export const formatGroupLeaderboardTelegram = (groupName, month, memberReports) 
 };
 
 /**
+ * Dynamically Compile Rich Monthly Report Data for all Group Members
+ */
+export const compileGroupMonthlyReports = async (group, targetMonthStr) => {
+  const [yearStr, monthNumStr] = (targetMonthStr || '').split('-');
+  const year = parseInt(yearStr, 10);
+  const month = parseInt(monthNumStr, 10);
+  const daysInMonth = new Date(year, month, 0).getDate();
+
+  const now = new Date();
+  const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === month;
+  const maxDayToCount = isCurrentMonth ? now.getDate() : daysInMonth;
+
+  const groupId = (group.id || group._id).toString();
+  const allHabits = await collections.habits.find({ isArchived: false });
+  const groupHabits = allHabits.filter((h) => (h.groupId || '').toString() === groupId);
+  const groupHabitIds = groupHabits.map((h) => (h.id || h._id).toString());
+
+  const allLogs = await collections.habitLogs.find();
+  const allUsers = await collections.users.find();
+  const members = group.members || [];
+
+  const memberReports = [];
+
+  for (const member of members) {
+    const memberUserId = (member.userId || '').toString();
+    const freshUser = allUsers.find((u) => (u.id || u._id)?.toString() === memberUserId);
+
+    const userCreatedAtStr = (freshUser?.createdAt || `${targetMonthStr}-01`).split('T')[0];
+    let effectiveStartDay = 1;
+    if (userCreatedAtStr.startsWith(targetMonthStr)) {
+      const regDay = parseInt(userCreatedAtStr.split('-')[2], 10);
+      effectiveStartDay = Math.max(1, isNaN(regDay) ? 1 : regDay);
+    }
+
+    const activeDaysInMonth = Math.max(1, maxDayToCount - effectiveStartDay + 1);
+
+    // Filter member logs strictly for this group's habits in target month
+    const memberLogs = allLogs.filter((l) => {
+      if ((l.userId || '').toString() !== memberUserId || !l.date || !l.date.startsWith(targetMonthStr)) {
+        return false;
+      }
+      const logDay = parseInt(l.date.split('-')[2], 10);
+      return logDay >= effectiveStartDay && logDay <= maxDayToCount && groupHabitIds.includes((l.habitId || '').toString());
+    });
+
+    // Build per-habit breakdown
+    const habitSummaries = groupHabits.map((habit) => {
+      const habitId = (habit.id || habit._id).toString();
+      const habitLogs = memberLogs.filter((l) => (l.habitId || '').toString() === habitId);
+
+      const completedLogs = habitLogs.filter(
+        (l) =>
+          Boolean(l.isCompleted) ||
+          (typeof l.value === 'number' && l.value > 0) ||
+          (typeof l.value === 'string' && l.value.trim().length > 0)
+      );
+
+      const completedDaysCount = completedLogs.length;
+      const completionPercentage = Math.min(100, Math.round((completedDaysCount / activeDaysInMonth) * 100));
+
+      let typeDetails = {};
+      if (habit.type === 'count') {
+        const totalCount = completedLogs.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
+        typeDetails = {
+          totalCount,
+          dailyAverage: Math.round((totalCount / activeDaysInMonth) * 10) / 10
+        };
+      } else if (habit.type === 'time_target') {
+        const totalMinutes = completedLogs.reduce((sum, l) => sum + (Number(l.value) || 0), 0);
+        typeDetails = {
+          totalMinutes,
+          totalHours: Number((totalMinutes / 60).toFixed(1)),
+          dailyAverageMinutes: Math.round(totalMinutes / activeDaysInMonth)
+        };
+      } else if (habit.type === 'time_of_day') {
+        typeDetails = {
+          averageTime: completedLogs[0]?.value || habit.targetValue || 'N/A'
+        };
+      }
+
+      return {
+        habitId,
+        title: habit.title,
+        type: habit.type,
+        targetUnit: habit.targetUnit || '',
+        targetValue: habit.targetValue || '',
+        completedDaysCount,
+        activeDaysInMonth,
+        completionPercentage,
+        typeDetails
+      };
+    });
+
+    // Compute Discipline Score (days with 100% group habits completed)
+    const logsByDate = {};
+    memberLogs.forEach((l) => {
+      const isDone =
+        Boolean(l.isCompleted) ||
+        (typeof l.value === 'number' && l.value > 0) ||
+        (typeof l.value === 'string' && l.value.trim().length > 0);
+
+      if (isDone && l.date) {
+        if (!logsByDate[l.date]) logsByDate[l.date] = new Set();
+        logsByDate[l.date].add((l.habitId || '').toString());
+      }
+    });
+
+    let perfectDays = 0;
+    if (groupHabitIds.length > 0) {
+      for (const dateStr in logsByDate) {
+        if (logsByDate[dateStr].size >= groupHabitIds.length) {
+          perfectDays += 1;
+        }
+      }
+    }
+
+    const overallCompletionRate =
+      habitSummaries.length > 0
+        ? Math.round(habitSummaries.reduce((sum, h) => sum + h.completionPercentage, 0) / habitSummaries.length)
+        : 0;
+
+    // Check if finalized/saved report exists in monthly_reports collection
+    const allMonthlyReports = await collections.monthlyReports.find();
+    const savedMemberReport = allMonthlyReports.find(
+      (r) => (r.groupId || '').toString() === groupId && (r.userId || '').toString() === memberUserId && r.month === targetMonthStr
+    );
+
+    // If raw member logs are empty (e.g., historical pruned logs), seamlessly use preserved static report stats
+    let disciplineScore = perfectDays;
+    let overallRate = overallCompletionRate;
+    let activeDays = activeDaysInMonth;
+    let finalHabitSummaries = habitSummaries;
+
+    if (memberLogs.length === 0 && savedMemberReport && savedMemberReport.habitSummaries?.length > 0) {
+      disciplineScore = savedMemberReport.overallStats?.disciplineScore ?? savedMemberReport.overallStats?.perfectDays ?? 0;
+      overallRate = savedMemberReport.overallStats?.overallCompletionRate ?? 0;
+      activeDays = savedMemberReport.activeDaysInMonth || activeDaysInMonth;
+      finalHabitSummaries = savedMemberReport.habitSummaries;
+    }
+
+    memberReports.push({
+      userId: memberUserId,
+      userProfile: {
+        id: memberUserId,
+        name: freshUser?.name || member.name || 'સભ્ય',
+        username: freshUser?.username || member.username || '',
+        avatar: freshUser?.avatar || member.avatar || ''
+      },
+      groupId,
+      month: targetMonthStr,
+      activeDaysInMonth: activeDays,
+      overallStats: {
+        totalHabits: groupHabits.length,
+        perfectDays: disciplineScore,
+        disciplineScore,
+        overallCompletionRate: overallRate
+      },
+      habitSummaries: finalHabitSummaries
+    });
+  }
+
+  // Sort by disciplineScore descending, then completion rate
+  memberReports.sort(
+    (a, b) =>
+      b.overallStats.disciplineScore - a.overallStats.disciplineScore ||
+      b.overallStats.overallCompletionRate - a.overallStats.overallCompletionRate
+  );
+
+  return memberReports;
+};
+
+/**
  * Broadcast group monthly reports as a PDF Book (Page 1 = Leaderboard/Summary, Pages 2..N = 1 page per member)
  */
-export const sendGroupReportsToTelegram = async (groupId, month, chatIdOverride = null) => {
+export const sendGroupReportsToTelegram = async (groupId, month = null, chatIdOverride = null) => {
   try {
     const group = await collections.groups.findById(groupId);
     if (!group) return { success: false, message: 'Group not found' };
 
-    const allMonthlyReports = await collections.monthlyReports.find();
-    // Strictly filter by groupId
-    const groupReports = allMonthlyReports.filter(
-      (r) => (r.groupId || '').toString() === groupId.toString() && r.month === month
-    );
+    const now = new Date();
+    const targetMonth = month || `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+
+    console.log(`📊 [Telegram] Compiling live monthly report data for ${group.name} (${targetMonth})...`);
+    const groupReports = await compileGroupMonthlyReports(group, targetMonth);
 
     if (groupReports.length === 0) {
-      console.warn(`No monthly reports found for group ${groupId} and month ${month}`);
-      return { success: false, message: 'No reports found' };
+      console.warn(`No member reports compiled for group ${groupId} and month ${targetMonth}`);
+      return { success: false, message: 'No reports compiled' };
     }
 
-    // Sort by disciplineScore descending
-    groupReports.sort(
-      (a, b) =>
-        (b.overallStats?.disciplineScore || 0) - (a.overallStats?.disciplineScore || 0) ||
-        (b.overallStats?.overallCompletionRate || 0) - (a.overallStats?.overallCompletionRate || 0)
-    );
+    const [yearStr, monthNumStr] = (targetMonth || '').split('-');
+    const monthName = MONTH_NAMES[parseInt(monthNumStr, 10) - 1] || targetMonth;
 
-    const [yearStr, monthNumStr] = (month || '').split('-');
-    const monthName = MONTH_NAMES[parseInt(monthNumStr, 10) - 1] || month;
+    console.log(`📄 [PDF Generator] Generating monthly PDF report book for ${group.name} (${targetMonth}) with ${groupReports.length} members...`);
+    const pdfBuffer = await generateGroupMonthlyReportPDF(group, targetMonth, groupReports);
 
-    console.log(`📄 [PDF Generator] Generating monthly PDF report book for ${group.name} (${month})...`);
-    const pdfBuffer = await generateGroupMonthlyReportPDF(group, month, groupReports);
-
-    const filename = `${(group.name || 'Group').replace(/[^a-zA-Z0-9]/g, '_')}_Report_${month}.pdf`;
+    const filename = `${(group.name || 'Group').replace(/[^a-zA-Z0-9]/g, '_')}_Report_${targetMonth}.pdf`;
     const caption = `📊 <b>${group.name} - માસિક પ્રગતિ અહેવાલ PDF (${monthName} ${yearStr})</b>\n\n` +
       `📄 <b>આ PDF રિપોર્ટ બુકમાં સામેલ છે:</b>\n` +
       `• <b>પેજ ૧:</b> ગ્રુપ સારાંશ અને માસિક લીડરબોર્ડ 🏆\n` +
-      `• <b>પેજ ૨ થી ${groupReports.length + 1}:</b> તમામ ૧૪ સભ્યોના વિગતવાર પર્સનલ રિપોર્ટ પેજ 📝\n\n` +
+      `• <b>પેજ ૨ થી ${groupReports.length + 1}:</b> તમામ ${groupReports.length} સભ્યોના વિગતવાર પર્સનલ રિપોર્ટ પેજ 📝\n\n` +
       `✨ <i>જય સ્વામિનારાયણ</i> 🙏🏻`;
 
     const sendRes = await sendTelegramDocument({
@@ -158,7 +323,7 @@ export const sendGroupReportsToTelegram = async (groupId, month, chatIdOverride 
     if (sendRes.success) {
       console.log(`✅ [Telegram] Broadcasted PDF Monthly Report Book to Telegram.`);
       try {
-        await collections.groups.updateOne({ id: groupId.toString() }, { lastTelegramReportMonth: month });
+        await collections.groups.updateOne({ id: groupId.toString() }, { lastTelegramReportMonth: targetMonth });
       } catch (saveErr) {
         console.warn('⚠️ Could not update lastTelegramReportMonth on group:', saveErr.message);
       }
@@ -171,7 +336,7 @@ export const sendGroupReportsToTelegram = async (groupId, month, chatIdOverride 
         disciplineScore: r.overallStats?.disciplineScore || 0,
         completionRate: r.overallStats?.overallCompletionRate || 0
       }));
-      const leaderboardMsg = formatGroupLeaderboardTelegram(group.name, month, leaderboardData);
+      const leaderboardMsg = formatGroupLeaderboardTelegram(group.name, targetMonth, leaderboardData);
       await sendTelegramMessage(leaderboardMsg, chatIdOverride);
       return { success: true, fallback: true };
     }

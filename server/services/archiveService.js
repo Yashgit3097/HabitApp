@@ -369,34 +369,36 @@ export const runMonthlyArchiveAndCleanup = async () => {
 
     console.log(`✅ [Archive Service] Finalized ${reportsGenerated} user & group reports for ${prevMonthStr}.`);
 
-    // 3. Broadcast finalized reports to Telegram Group (only once per month!)
+    // 3. Broadcast finalized previous month reports to Telegram Group (only once per month!)
     for (const group of allGroups) {
       const groupId = (group.id || group._id).toString();
 
-      // Deduplication guard: Check if already sent for this month to prevent sending on every server restart / commit
+      // Deduplication guard: Check if already sent for this previous month to prevent duplicate spam
       if (group.lastTelegramReportMonth === prevMonthStr) {
         console.log(`ℹ️ [Archive Service] PDF report already broadcasted to Telegram for "${group.name}" (${prevMonthStr}). Skipping duplicate send.`);
         continue;
       }
 
       try {
-        console.log(`📢 [Archive Service] Broadcasting ${prevMonthStr} reports to Telegram for group: ${group.name}...`);
+        console.log(`📢 [Archive Service] Broadcasting previous month (${prevMonthStr}) report to Telegram for group: ${group.name}...`);
         await sendGroupReportsToTelegram(groupId, prevMonthStr);
       } catch (tgErr) {
         console.error(`⚠️ Telegram broadcast failed for group ${group.name}:`, tgErr.message);
       }
     }
 
-    // 4. Clean up daily logs strictly from prior months that have completed reports
+    // 4. Clean up daily logs strictly older than 2 months (keep current and previous month daily logs 100% intact!)
     let logsDeleted = 0;
     const oldLogs = allLogs.filter((l) => {
       if (!l.date) return false;
-      // Guard 1: Never match any log from current active month
+      // Guard 1: Never delete current active month logs
       if (l.date.startsWith(currentMonthStr)) return false;
-      // Guard 2: Never match any future logs or logs past the end of previous month
-      if (l.date > `${prevMonthStr}-${daysInPrevMonth}`) return false;
-      // Guard 3: Only match logs strictly belonging to previous months
-      return true;
+      // Guard 2: Never delete previous month logs
+      if (l.date.startsWith(prevMonthStr)) return false;
+      // Guard 3: Never delete future logs
+      if (l.date > currentMonthStr) return false;
+      // Only match logs older than previous month (2+ months ago)
+      return l.date < prevMonthStr;
     });
 
     if (reportsGenerated > 0 && oldLogs.length > 0) {
@@ -407,7 +409,7 @@ export const runMonthlyArchiveAndCleanup = async () => {
           logsDeleted++;
         }
       }
-      console.log(`🧹 [Archive Service] Cleaned up ${logsDeleted} raw daily logs strictly from previous month (${prevMonthStr}) and older. Current month (${currentMonthStr}) logs remain 100% untouched.`);
+      console.log(`🧹 [Archive Service] Cleaned up ${logsDeleted} historical logs older than 60 days. Current (${currentMonthStr}) & Previous (${prevMonthStr}) logs remain 100% intact.`);
     }
   } catch (error) {
     console.error('❌ [Archive Service] Error running monthly archival:', error);
