@@ -53,12 +53,16 @@ const getEmbeddedFontsCSS = () => {
     const regB64  = fs.readFileSync(regPath).toString('base64');
     const boldB64 = fs.readFileSync(boldPath).toString('base64');
     console.log('[PDF] Embedding Gujarati fonts as base64 (' + Math.round((regB64.length + boldB64.length) / 1024) + ' KB)');
+    // unicode-range restricts NotoGuj to ONLY Gujarati/Devanagari blocks.
+    // All other codepoints (Latin, emoji, etc.) fall through to system fonts.
+    const gujaratiRange = 'U+0A80-0AFF, U+0900-097F, U+0020-007E, U+00A0-00FF';
     return `
       @font-face {
         font-family: 'NotoGuj';
         font-weight: 400;
         font-style: normal;
         src: url('data:font/truetype;base64,${regB64}') format('truetype');
+        unicode-range: ${gujaratiRange};
         font-display: block;
       }
       @font-face {
@@ -66,6 +70,7 @@ const getEmbeddedFontsCSS = () => {
         font-weight: 700;
         font-style: normal;
         src: url('data:font/truetype;base64,${boldB64}') format('truetype');
+        unicode-range: ${gujaratiRange};
         font-display: block;
       }
     `;
@@ -188,18 +193,19 @@ const buildReportHTML = (group, monthStr, memberReports) => {
   // ── Leaderboard rows
   const lbRows = memberReports.map((m, i) => {
     const rank = i + 1;
-    const medalEmoji = rank === 1 ? '&#127947;' : rank === 2 ? '&#127948;' : rank === 3 ? '&#127949;' : '';
+    // Use text medals — guaranteed to render with any font
+    const medalText = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}`;
     const medalClass = rank <= 3 ? ['rank-gold', 'rank-silver', 'rank-bronze'][rank - 1] : 'rank-normal';
     const comp = m.overallStats?.overallCompletionRate || 0;
     const compClass = comp >= 80 ? 'high' : comp >= 50 ? 'mid' : 'low';
-    const avatarUrl = optimizeAvatar(m.userProfile?.avatar || '', 56);
+    const avatarUrl = optimizeAvatar(m.userProfile?.avatar || '', 44);
     const initial = (m.userProfile?.name || 'U').charAt(0).toUpperCase();
     const avatarHTML = avatarUrl
       ? `<div class="av-sm"><img src="${avatarUrl}" onerror="this.style.display='none';this.nextSibling.style.display='flex'"><span class="av-init" style="display:none">${initial}</span></div>`
       : `<div class="av-sm"><span class="av-init">${initial}</span></div>`;
     return `
       <tr class="${i % 2 ? 'row-alt' : ''}">
-        <td class="td-rank ${medalClass}">${medalEmoji} ${rank}</td>
+        <td class="td-rank ${medalClass}"><span class="emoji-cell">${medalText}</span></td>
         <td class="td-name"><div class="name-row">${avatarHTML}<span>${m.userProfile?.name || 'Unknown'}</span></div></td>
         <td class="td-score">${m.overallStats?.disciplineScore || 0}</td>
         <td class="td-pct"><span class="badge badge-${compClass}">${comp}%</span></td>
@@ -277,8 +283,8 @@ const buildReportHTML = (group, monthStr, memberReports) => {
                 </div>
                 <div class="mcard-meta">
                   <span class="tag">${group.name || 'Sankalp'}</span>
-                  <span class="tag">&#128197; ${monthName} ${yearStr}</span>
-                  <span class="tag tag-teal">&#127919; ${activeDays} દિ. સક્રિય</span>
+                  <span class="tag"><span class="emoji-cell">&#128197;</span> ${monthName} ${yearStr}</span>
+                  <span class="tag tag-teal"><span class="emoji-cell">&#127919;</span> ${activeDays} દિ. સક્રિય</span>
                 </div>
               </div>
             </div>
@@ -324,8 +330,8 @@ const buildReportHTML = (group, monthStr, memberReports) => {
           </div>
         </div>
         <div class="footer">
-          <div>&#127775; <i>&#8220;નિ., ધ. અને સ.નું પ. એ ભ.ની સ. શો.&#8221;</i></div>
-          <div>જ. સ્. &#128591;</div>
+          <div><span class="emoji-cell">&#127775;</span> <i>&#8220;નિ., ધ. અને સ.નું પ. એ ભ.ની સ. શો.&#8221;</i></div>
+          <div>જ. સ્. <span class="emoji-cell">&#128591;</span></div>
         </div>
       </div>`;
   }).join('');
@@ -340,13 +346,21 @@ ${fontsCSS}
 
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html,body{width:100%;background:#e2e8f0}
-body{font-family:'NotoGuj','Noto Sans Gujarati',sans-serif;color:#0f172a;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{
+  /* NotoGuj covers Gujarati/Devanagari only (unicode-range above).
+     Emoji + Latin fall through to system emoji/sans fonts. */
+  font-family:'NotoGuj','Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji','Noto Sans Gujarati',sans-serif;
+  color:#0f172a;
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
 
 @page{size:A4 portrait;margin:0}
 
-.page{width:210mm;min-height:297mm;background:#fff;margin:0 auto 10px;display:flex;flex-direction:column;page-break-after:always;overflow:hidden}
+/* No overflow:hidden — it clips bottom rows. Pages are exactly 297mm tall via min-height. */
+.page{width:210mm;min-height:297mm;height:297mm;background:#fff;margin:0 auto 10px;display:flex;flex-direction:column;page-break-after:always}
 .page:last-child{page-break-after:avoid}
-.page-body{flex:1;padding:14px 18px 8px;display:flex;flex-direction:column;gap:8px}
+.page-body{flex:1;padding:12px 18px 6px;display:flex;flex-direction:column;gap:6px;overflow:hidden}
 
 /* TOP BAR */
 .topbar{display:flex;justify-content:space-between;align-items:center;padding-bottom:7px;border-bottom:1.5px solid #0f766e}
@@ -381,26 +395,28 @@ table{width:100%;border-collapse:collapse;font-size:8.5px}
 thead tr{background:#0f766e;color:#fff}
 thead th{padding:7px 8px;font-weight:900;text-align:left;font-size:8.5px}
 
-/* LEADERBOARD */
-td{padding:5px 8px;border-bottom:1px solid #e2e8f0;vertical-align:middle}
+/* LEADERBOARD — compact rows so 14 members fit on one page */
+td{padding:3px 6px;border-bottom:1px solid #e2e8f0;vertical-align:middle;line-height:1.3}
 tr:last-child td{border-bottom:none}
 .row-alt{background:#f8fafc}
-.td-rank{font-size:9px;font-weight:900;width:56px}
+.td-rank{font-size:9px;font-weight:900;width:52px;white-space:nowrap}
 .rank-gold{color:#92400e}
 .rank-silver{color:#475569}
 .rank-bronze{color:#b45309}
 .rank-normal{color:#334155}
-.td-name{width:44%}
-.td-score{text-align:center;font-size:11px;font-weight:900;color:#134e4a;width:17%}
-.td-pct{text-align:center;width:14%}
+.td-name{width:46%}
+.td-score{text-align:center;font-size:10px;font-weight:900;color:#134e4a;width:16%}
+.td-pct{text-align:center;width:13%}
+/* Emoji cell — uses system emoji font via fallback chain */
+.emoji-cell{font-family:'Noto Color Emoji','Apple Color Emoji','Segoe UI Emoji',sans-serif;font-size:13px}
 
 /* NAME ROW */
-.name-row{display:flex;align-items:center;gap:6px}
+.name-row{display:flex;align-items:center;gap:5px}
 
 /* AVATAR */
-.av-sm{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#134e4a);flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.av-sm{width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#134e4a);flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .av-sm img{width:100%;height:100%;object-fit:cover;border-radius:50%}
-.av-init{font-size:11px;font-weight:900;color:#fff}
+.av-init{font-size:10px;font-weight:900;color:#fff}
 .av-lg{width:58px;height:58px;border-radius:50%;background:linear-gradient(135deg,#0f766e,#134e4a);flex-shrink:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .av-lg img{width:100%;height:100%;object-fit:cover;border-radius:50%}
 .av-init-lg{font-size:22px;font-weight:900;color:#fff}
@@ -460,8 +476,9 @@ tr:last-child td{border-bottom:none}
 .footer{display:flex;justify-content:space-between;align-items:center;padding:6px 18px 8px;border-top:1px solid #cbd5e1;background:#f8fafc;font-size:8px;color:#475569;font-weight:700}
 .footer>div:last-child{color:#0f766e;font-weight:900;white-space:nowrap}
 
-/* LEADERBOARD SECTION FLEX */
-.lb-sec{flex:1;display:flex;flex-direction:column}
+/* LEADERBOARD SECTION FLEX — flex:1 lets it fill remaining page height */
+.lb-sec{flex:1;display:flex;flex-direction:column;min-height:0}
+.lb-sec .tbl-box{flex:1;overflow:hidden}
 
 @media print{
   body{background:#fff}
@@ -507,10 +524,10 @@ tr:last-child td{border-bottom:none}
     <div class="lb-sec">
       <div class="sec-hdr">
         <div class="sec-hdr-l">
-          <span>&#127942;</span>
+          <span class="emoji-cell">&#127942;</span>
           <div>
-            <div class="sec-title">માસ. લીડ. ક્ર.</div>
-            <div class="sec-sub">ગ.સ. ની નિ.પ.પ્ર.</div>
+            <div class="sec-title">&#128293; માસ. લીડ. ક્ર.</div>
+            <div class="sec-sub">ગ.સ. ની નિ. • પ. • પ્ર.</div>
           </div>
         </div>
         <div class="sec-month">${monthName} ${yearStr}</div>
@@ -524,8 +541,8 @@ tr:last-child td{border-bottom:none}
     </div>
   </div>
   <div class="footer">
-    <div>જ. સ્. &bull; સ. હ. ટ્ . &bull; habitsankalp.netlify.app</div>
-    <div>&#128591;</div>
+    <div>જ. સ્. &bull; habitsankalp.netlify.app</div>
+    <div><span class="emoji-cell">&#128591;</span></div>
   </div>
 </div>
 
