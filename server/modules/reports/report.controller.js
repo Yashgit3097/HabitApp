@@ -799,3 +799,29 @@ export const downloadGroupMonthlyReportPDF = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to generate PDF', error: error.message });
   }
 };
+
+// @desc    Trigger Telegram PDF Broadcast directly from URL for testing
+// @route   GET /api/reports/trigger-telegram
+// @access  Public
+export const triggerTelegramMonthlyReport = async (req, res) => {
+  try {
+    const allGroups = await collections.groups.find();
+    const group = allGroups[0];
+    if (!group) {
+      return res.status(404).json({ success: false, message: 'No group found' });
+    }
+
+    const targetMonth = req.query.month || '2026-09';
+    const { sendGroupReportsToTelegram } = await import('../../services/telegramService.js');
+    const result = await sendGroupReportsToTelegram(group.id || group._id, targetMonth);
+
+    res.status(200).json({
+      success: true,
+      message: `Render successfully generated and broadcasted ${targetMonth} PDF report to Telegram!`,
+      data: result
+    });
+  } catch (error) {
+    console.error('Trigger Telegram Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to trigger Telegram broadcast', error: error.message });
+  }
+};
