@@ -84,11 +84,14 @@ const findFontPath = (fontFileName) => {
   return null;
 };
 
+let cachedFontsCSS = null;
+
 /**
  * Embed local TTF fonts directly into HTML as base64
- * Ensures 0ms font load and 100% offline rendering on Render with zero external network lag
+ * Cached in memory so disk reading occurs only once on startup (0ms overhead & no memory leak)
  */
 const getEmbeddedFontsCSS = () => {
+  if (cachedFontsCSS !== null) return cachedFontsCSS;
   try {
     const regPath = findFontPath('NotoSansGujarati-Regular.ttf');
     const boldPath = findFontPath('NotoSansGujarati-Bold.ttf');
@@ -115,11 +118,23 @@ const getEmbeddedFontsCSS = () => {
         }
       `;
     }
+    cachedFontsCSS = css;
     return css;
   } catch (err) {
     console.warn('⚠️ [PDF] Could not inline font base64:', err.message);
     return '';
   }
+};
+
+/**
+ * Sequential execution lock for PDF generation to prevent multiple parallel Chromium spawns
+ * from exceeding Render RAM limit (512MB).
+ */
+let pdfGenerationQueue = Promise.resolve();
+const runWithPDFLock = (fn) => {
+  const job = pdfGenerationQueue.then(fn, fn);
+  pdfGenerationQueue = job.catch(() => {});
+  return job;
 };
 
 /**
@@ -2681,73 +2696,76 @@ const generatePDFKitReport = (group, monthStr, memberReports) => {
  * Falls back to enhanced PDFKit only if Chromium cannot be launched.
  */
 export const generateGroupMonthlyReportPDF = async (group, monthStr, memberReports) => {
-  let browser = null;
+  return runWithPDFLock(async () => {
+    let browser = null;
+    let page = null;
 
-  try {
-    browser = await launchBrowser();
-  } catch (e) {
-    console.warn('⚠️ [PDF] Browser launch error:', e.message);
-  }
-
-  if (browser) {
     try {
-      console.log('🚀 [PDF] Rendering HTML in Chromium with embedded fonts & avatars...');
-      const page = await browser.newPage();
+      browser = await launchBrowser();
+      if (browser) {
+        console.log('🚀 [PDF] Rendering HTML in Chromium with embedded fonts & avatars...');
+        page = await browser.newPage();
 
-      const html = buildReportHTML(group, monthStr, memberReports);
+        const html = buildReportHTML(group, monthStr, memberReports);
 
-      await page.setContent(html, {
-        waitUntil: 'domcontentloaded',
-        timeout: 15000
-      });
+        await page.setContent(html, {
+          waitUntil: 'domcontentloaded',
+          timeout: 20000
+        });
 
-      // Wait for embedded fonts to be ready
-      await page.evaluate(async () => {
-        if (document.fonts?.ready) {
-          await document.fonts.ready;
+        // Wait for embedded fonts to be ready
+        if (page.evaluate) {
+          await page.evaluate(async () => {
+            if (document.fonts?.ready) {
+              await document.fonts.ready;
+            }
+          });
         }
-      });
 
-      // Wait at most 3 seconds for avatar images (never hangs or times out)
-      await Promise.race([
-        page.evaluate(async () => {
-          const imgs = Array.from(document.images);
-          await Promise.all(
-            imgs.map((img) =>
-              img.complete
-                ? Promise.resolve()
-                : new Promise((r) => {
-                    img.addEventListener('load', r, { once: true });
-                    img.addEventListener('error', r, { once: true });
-                  })
-            )
-          );
-        }),
-        new Promise((r) => setTimeout(r, 3000))
-      ]);
+        // Wait at most 3 seconds for avatar images (never hangs or times out)
+        await Promise.race([
+          page.evaluate(async () => {
+            const imgs = Array.from(document.images);
+            await Promise.all(
+              imgs.map((img) =>
+                img.complete
+                  ? Promise.resolve()
+                  : new Promise((r) => {
+                      img.addEventListener('load', r, { once: true });
+                      img.addEventListener('error', r, { once: true });
+                    })
+              )
+            );
+          }),
+          new Promise((r) => setTimeout(r, 3000))
+        ]);
 
-      const pdfBuf = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
-        preferCSSPageSize: true
-      });
+        const pdfBuf = await page.pdf({
+          format: 'A4',
+          printBackground: true,
+          margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
+          preferCSSPageSize: true
+        });
 
-      await browser.close();
-      console.log(`✅ [PDF] Chromium PDF ready: ${(pdfBuf.length / 1024).toFixed(1)} KB`);
-      return Buffer.from(pdfBuf);
+        console.log(`✅ [PDF] Chromium PDF ready: ${(pdfBuf.length / 1024).toFixed(1)} KB`);
+        return Buffer.from(pdfBuf);
+      }
     } catch (err) {
       console.error('❌ [PDF] Chromium failed, falling back to PDFKit:', err.message);
-      try {
-        await browser.close();
-      } catch (_) {}
+    } finally {
+      if (page) {
+        try { await page.close(); } catch (_) {}
+      }
+      if (browser) {
+        try { await browser.close(); } catch (_) {}
+      }
     }
-  }
 
-  console.log('⚠️ [PDF] Falling back to enhanced PDFKit generator...');
-  const fallbackBuf = await generatePDFKitReport(group, monthStr, memberReports);
-  console.log(`✅ [PDF] PDFKit fallback ready: ${(fallbackBuf.length / 1024).toFixed(1)} KB`);
-  return fallbackBuf;
+    console.log('⚠️ [PDF] Falling back to enhanced PDFKit generator...');
+    const fallbackBuf = await generatePDFKitReport(group, monthStr, memberReports);
+    console.log(`✅ [PDF] PDFKit fallback ready: ${(fallbackBuf.length / 1024).toFixed(1)} KB`);
+    return fallbackBuf;
+  });
 };
 
 /**
@@ -3652,69 +3670,70 @@ export const generatePDFKitTaskLeaderboardReport = (group, monthStr, taskLeaderb
  * Main export: Generate Task-Wise Leaderboard PDF Book
  */
 export const generateGroupTaskLeaderboardPDF = async (group, monthStr, taskLeaderboards) => {
-  let browser = null;
+  return runWithPDFLock(async () => {
+    let browser = null;
+    let page = null;
 
-  try {
-    browser = await launchBrowser();
-  } catch (e) {
-    console.warn('⚠️ [PDF] Browser launch error for task leaderboard:', e.message);
-  }
-
-  if (browser) {
     try {
-      console.log('🚀 [PDF] Rendering Task Leaderboard HTML in Chromium...');
-      const page = await browser.newPage();
+      browser = await launchBrowser();
+      if (browser) {
+        console.log('🚀 [PDF] Rendering Task Leaderboard HTML in Chromium...');
+        page = await browser.newPage();
 
-      const html = buildTaskLeaderboardHTML(group, monthStr, taskLeaderboards);
+        const html = buildTaskLeaderboardHTML(group, monthStr, taskLeaderboards);
 
-      await page.setContent(html, {
-        waitUntil: 'domcontentloaded',
-        timeout: 15000
-      });
-
-      if (page.evaluate) {
-        await page.evaluate(async () => {
-          if (document.fonts?.ready) await document.fonts.ready;
+        await page.setContent(html, {
+          waitUntil: 'domcontentloaded',
+          timeout: 20000
         });
+
+        if (page.evaluate) {
+          await page.evaluate(async () => {
+            if (document.fonts?.ready) await document.fonts.ready;
+          });
+        }
+
+        await Promise.race([
+          page.evaluate(async () => {
+            const imgs = Array.from(document.images);
+            await Promise.all(
+              imgs.map((img) =>
+                img.complete
+                  ? Promise.resolve()
+                  : new Promise((r) => {
+                      img.addEventListener('load', r, { once: true });
+                      img.addEventListener('error', r, { once: true });
+                    })
+              )
+            );
+          }),
+          new Promise((r) => setTimeout(r, 3000))
+        ]);
+
+        const pdfBuf = await page.pdf({
+          format: 'A4',
+          printBackground: true,
+          margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
+          preferCSSPageSize: true
+        });
+
+        console.log(`✅ [PDF] Task Leaderboard Chromium PDF ready: ${(pdfBuf.length / 1024).toFixed(1)} KB`);
+        return Buffer.from(pdfBuf);
       }
-
-      await Promise.race([
-        page.evaluate(async () => {
-          const imgs = Array.from(document.images);
-          await Promise.all(
-            imgs.map((img) =>
-              img.complete
-                ? Promise.resolve()
-                : new Promise((r) => {
-                    img.addEventListener('load', r, { once: true });
-                    img.addEventListener('error', r, { once: true });
-                  })
-            )
-          );
-        }),
-        new Promise((r) => setTimeout(r, 3000))
-      ]);
-
-      const pdfBuf = await page.pdf({
-        format: 'A4',
-        printBackground: true,
-        margin: { top: '0px', right: '0px', bottom: '0px', left: '0px' },
-        preferCSSPageSize: true
-      });
-
-      await browser.close();
-      console.log(`✅ [PDF] Task Leaderboard Chromium PDF ready: ${(pdfBuf.length / 1024).toFixed(1)} KB`);
-      return Buffer.from(pdfBuf);
     } catch (err) {
       console.error('❌ [PDF] Task Leaderboard Chromium failed, falling back to PDFKit:', err.message);
-      try {
-        await browser.close();
-      } catch (_) {}
+    } finally {
+      if (page) {
+        try { await page.close(); } catch (_) {}
+      }
+      if (browser) {
+        try { await browser.close(); } catch (_) {}
+      }
     }
-  }
 
-  console.log('⚠️ [PDF] Falling back to PDFKit Task Leaderboard generator...');
-  const fallbackBuf = await generatePDFKitTaskLeaderboardReport(group, monthStr, taskLeaderboards);
-  console.log(`✅ [PDF] Task Leaderboard PDFKit fallback ready: ${(fallbackBuf.length / 1024).toFixed(1)} KB`);
-  return fallbackBuf;
+    console.log('⚠️ [PDF] Falling back to PDFKit Task Leaderboard generator...');
+    const fallbackBuf = await generatePDFKitTaskLeaderboardReport(group, monthStr, taskLeaderboards);
+    console.log(`✅ [PDF] Task Leaderboard PDFKit fallback ready: ${(fallbackBuf.length / 1024).toFixed(1)} KB`);
+    return fallbackBuf;
+  });
 };

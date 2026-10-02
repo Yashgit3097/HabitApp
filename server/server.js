@@ -13,6 +13,7 @@ import groupRoutes from './modules/groups/group.routes.js';
 import reportRoutes from './modules/reports/report.routes.js';
 import { initSocketHandlers } from './sockets/socketHandler.js';
 import { initArchiveScheduler } from './services/archiveService.js';
+import { initTelegramScheduler } from './services/telegramService.js';
 
 dotenv.config();
 
@@ -152,5 +153,8 @@ connectDB().then(() => {
 
     // Start background monthly report archiver & cleanup
     initArchiveScheduler();
+
+    // Start automated Telegram daily reports, monthly leaderboards, & database backups
+    initTelegramScheduler();
   });
 });

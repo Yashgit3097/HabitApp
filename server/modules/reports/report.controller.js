@@ -767,3 +767,48 @@ export const downloadGroupTaskLeaderboardPDF = async (req, res) => {
     res.status(500).json({ success: false, message: 'Failed to generate task leaderboard PDF', error: error.message });
   }
 };
+
+// @desc    Manually trigger Daily Group Compliance Report to Telegram
+// @route   POST /api/reports/telegram/daily
+// @access  Private
+export const triggerTelegramDailyReport = async (req, res) => {
+  try {
+    const { sendDailyGroupComplianceReport } = await import('../../services/telegramService.js');
+    const targetDate = req.body?.date || req.query?.date || null;
+    const result = await sendDailyGroupComplianceReport(targetDate);
+    res.status(200).json({ success: true, message: 'Daily Telegram report triggered', data: result });
+  } catch (error) {
+    console.error('Trigger Telegram Daily Report Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to trigger Telegram daily report', error: error.message });
+  }
+};
+
+// @desc    Manually trigger Monthly Task Leaderboard PDF to Telegram
+// @route   POST /api/reports/telegram/monthly-leaderboard
+// @access  Private
+export const triggerTelegramMonthlyLeaderboard = async (req, res) => {
+  try {
+    const { sendMonthlyTaskLeaderboardsToTelegram } = await import('../../services/telegramService.js');
+    const targetMonth = req.body?.month || req.query?.month || null;
+    const result = await sendMonthlyTaskLeaderboardsToTelegram(targetMonth);
+    res.status(200).json({ success: true, message: 'Monthly Task Leaderboard PDF sent to Telegram', data: result });
+  } catch (error) {
+    console.error('Trigger Telegram Monthly Leaderboard Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to send monthly leaderboard PDF to Telegram', error: error.message });
+  }
+};
+
+// @desc    Manually trigger Full Database Backup ZIP to Telegram
+// @route   POST /api/reports/telegram/backup
+// @access  Private
+export const triggerTelegramDatabaseBackup = async (req, res) => {
+  try {
+    const { sendMonthlyDatabaseBackupToTelegram } = await import('../../services/telegramService.js');
+    const targetMonth = req.body?.month || req.query?.month || null;
+    const result = await sendMonthlyDatabaseBackupToTelegram(targetMonth);
+    res.status(200).json({ success: true, message: 'Database backup ZIP sent to Telegram', data: result });
+  } catch (error) {
+    console.error('Trigger Telegram Database Backup Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to send database backup to Telegram', error: error.message });
+  }
+};
