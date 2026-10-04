@@ -118,7 +118,7 @@ export const MonthlyReportView = ({ report, canEdit = false, showRemarks = true 
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h3 className="text-sm sm:text-base font-black text-white truncate">{userProfile.name}</h3>
-                {isFirstMonth && (
+                {isFirstMonth && effectiveStartDay > 1 && (
                   <span className="text-[9px] font-black uppercase px-1.5 py-0.2 rounded-md bg-amber-400 text-amber-950">
                     🌟 1st Month (Day {effectiveStartDay}+)
                   </span>

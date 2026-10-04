@@ -158,23 +158,15 @@ const generateAndSaveReportDoc = async ({
 }) => {
   const userId = (user.id || user._id).toString();
 
-  const userCreatedAtStr = (user.createdAt || `${targetMonthStr}-01`).split('T')[0];
-  const userRegMonth = userCreatedAtStr.slice(0, 7);
-
-  let effectiveStartDay = 1;
-  if (userRegMonth === targetMonthStr) {
-    const regDay = parseInt(userCreatedAtStr.split('-')[2], 10);
-    effectiveStartDay = Math.max(1, isNaN(regDay) ? 1 : regDay);
-  }
-
-  const activeDaysInMonth = Math.max(1, maxDayToCount - effectiveStartDay + 1);
+  const activeDaysInMonth = Math.max(1, maxDayToCount);
+  const effectiveStartDay = 1;
 
   const userMonthLogs = allLogs.filter((l) => {
     if ((l.userId || '').toString() !== userId || !l.date || !l.date.startsWith(targetMonthStr)) {
       return false;
     }
     const logDay = parseInt(l.date.split('-')[2], 10);
-    return logDay >= effectiveStartDay && logDay <= maxDayToCount;
+    return logDay >= 1 && logDay <= maxDayToCount;
   });
 
   const habitSummaries = habits.map((habit) => buildHabitSummary(habit, userMonthLogs, activeDaysInMonth));
@@ -227,9 +219,9 @@ const generateAndSaveReportDoc = async ({
     year,
     monthNumber: month,
     daysInMonth,
-    effectiveStartDay,
+    effectiveStartDay: 1,
     activeDaysInMonth,
-    isFirstMonth: userRegMonth === targetMonthStr,
+    isFirstMonth: false,
     overallStats: {
       totalHabits: habits.length,
       perfectDays: perfectDaysInMonth,

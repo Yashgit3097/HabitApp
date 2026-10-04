@@ -2796,14 +2796,7 @@ export const compileGroupMonthlyReports = async (group, targetMonthStr) => {
     const memberUserId = (member.userId || '').toString();
     const freshUser = allUsers.find((u) => (u.id || u._id)?.toString() === memberUserId);
 
-    const userCreatedAtStr = (freshUser?.createdAt || `${targetMonthStr}-01`).split('T')[0];
-    let effectiveStartDay = 1;
-    if (userCreatedAtStr.startsWith(targetMonthStr)) {
-      const regDay = parseInt(userCreatedAtStr.split('-')[2], 10);
-      effectiveStartDay = Math.max(1, isNaN(regDay) ? 1 : regDay);
-    }
-
-    const activeDaysInMonth = Math.max(1, maxDayToCount - effectiveStartDay + 1);
+    const activeDaysInMonth = Math.max(1, maxDayToCount);
 
     // Filter member logs strictly for this group's habits in target month
     const memberLogs = allLogs.filter((l) => {
@@ -2811,7 +2804,7 @@ export const compileGroupMonthlyReports = async (group, targetMonthStr) => {
         return false;
       }
       const logDay = parseInt(l.date.split('-')[2], 10);
-      return logDay >= effectiveStartDay && logDay <= maxDayToCount && groupHabitIds.includes((l.habitId || '').toString());
+      return logDay >= 1 && logDay <= maxDayToCount && groupHabitIds.includes((l.habitId || '').toString());
     });
 
     // Build per-habit breakdown
@@ -3041,14 +3034,7 @@ export const compileGroupTaskLeaderboards = async (group, targetMonthStr) => {
       const memberUserId = (member.userId || '').toString();
       const freshUser = allUsers.find((u) => (u.id || u._id)?.toString() === memberUserId);
 
-      const userCreatedAtStr = (freshUser?.createdAt || `${targetMonthStr}-01`).split('T')[0];
-      let effectiveStartDay = 1;
-      if (userCreatedAtStr.startsWith(targetMonthStr)) {
-        const regDay = parseInt(userCreatedAtStr.split('-')[2], 10);
-        effectiveStartDay = Math.max(1, isNaN(regDay) ? 1 : regDay);
-      }
-
-      const activeDaysInMonth = Math.max(1, maxDayToCount - effectiveStartDay + 1);
+      const activeDaysInMonth = Math.max(1, maxDayToCount);
 
       // Filter logs for this specific member and habit in target month
       const memberLogs = allLogs.filter((l) => {
@@ -3056,7 +3042,7 @@ export const compileGroupTaskLeaderboards = async (group, targetMonthStr) => {
           return false;
         }
         const logDay = parseInt(l.date.split('-')[2], 10);
-        return logDay >= effectiveStartDay && logDay <= maxDayToCount && (l.habitId || '').toString() === habitId;
+        return logDay >= 1 && logDay <= maxDayToCount && (l.habitId || '').toString() === habitId;
       });
 
       const completedLogs = memberLogs.filter(

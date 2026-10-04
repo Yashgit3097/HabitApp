@@ -41,7 +41,13 @@ export const Dashboard = () => {
     }
   });
 
-  const habits = habitsResponse?.data || [];
+  const rawHabits = habitsResponse?.data || [];
+  const habits = [...rawHabits].sort((a, b) => {
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    if (timeA !== timeB) return timeA - timeB;
+    return (a.id || a._id || '').toString().localeCompare((b.id || b._id || '').toString());
+  });
   const totalHabits = habits.length;
   const completedHabits = habits.filter((h) => h.todayLog?.isCompleted).length;
   const completionPercentage = totalHabits > 0 ? Math.round((completedHabits / totalHabits) * 100) : 0;

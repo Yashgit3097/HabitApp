@@ -569,17 +569,9 @@ export const getUserMonthlyReportText = async (userIdentifier, targetMonthStr = 
     const daysInMonth = new Date(year, month, 0).getDate();
     const isCurrentMonth = now.getFullYear() === year && (now.getMonth() + 1) === month;
 
-    // Check user registration date to handle first month offset
-    const userCreatedAtStr = (user.createdAt || `${monthStr}-01`).split('T')[0];
-    let effectiveStartDay = 1;
-    if (userCreatedAtStr.startsWith(monthStr)) {
-      const regDay = parseInt(userCreatedAtStr.split('-')[2], 10);
-      effectiveStartDay = Math.max(1, isNaN(regDay) ? 1 : regDay);
-    }
-
     const currentDayOfMonth = now.getDate();
     const maxDayToCount = isCurrentMonth ? currentDayOfMonth : daysInMonth;
-    const activeDaysInMonth = Math.max(1, maxDayToCount - effectiveStartDay + 1);
+    const activeDaysInMonth = Math.max(1, maxDayToCount);
 
     // Fetch user habits (Personal + Joined Group Habits)
     const allHabits = await collections.habits.find({ isArchived: false });
@@ -610,7 +602,7 @@ export const getUserMonthlyReportText = async (userIdentifier, targetMonthStr = 
         return false;
       }
       const logDay = parseInt(l.date.split('-')[2], 10);
-      return logDay >= effectiveStartDay && logDay <= maxDayToCount;
+      return logDay >= 1 && logDay <= maxDayToCount;
     });
 
     // Compute metrics per habit

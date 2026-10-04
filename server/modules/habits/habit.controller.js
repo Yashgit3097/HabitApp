@@ -125,6 +125,14 @@ export const getHabits = async (req, res) => {
 
     const combinedHabits = [...personalHabits, ...groupHabits];
 
+    // Sort habits chronologically by createdAt (ascending: earliest created first, last created will show at last)
+    combinedHabits.sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (timeA !== timeB) return timeA - timeB;
+      return (a.id || a._id || '').toString().localeCompare((b.id || b._id || '').toString());
+    });
+
     // 4. Fetch logs for the target date for this user
     const allLogs = await collections.habitLogs.find();
     const allLogsForUser = allLogs.filter(

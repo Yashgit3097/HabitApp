@@ -124,6 +124,12 @@ export const getGroupDetails = async (req, res) => {
 
     // Fetch habits belonging to this group
     const allHabits = await collections.habits.find({ groupId: group.id || group._id, isArchived: false });
+    allHabits.sort((a, b) => {
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (timeA !== timeB) return timeA - timeB;
+      return (a.id || a._id || '').toString().localeCompare((b.id || b._id || '').toString());
+    });
 
     // Fetch logs for all members in this group's habits for targetDate
     const targetDate = req.query.date || new Date().toISOString().split('T')[0];
