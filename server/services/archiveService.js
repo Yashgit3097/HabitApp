@@ -27,19 +27,29 @@ const getDaysInMonth = (year, month) => new Date(year, month, 0).getDate();
 const formatDate = (year, month, day) =>
   `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
+// Helper: check if a habit log represents a truly completed check-in
+const isLogDone = (l) => {
+  if (!l) return false;
+  if (l.isCompleted === true || l.isCompleted === 1 || l.isCompleted === 'true') return true;
+  if (typeof l.value === 'number') return l.value > 0;
+  if (typeof l.value === 'string') {
+    const trimmed = l.value.trim();
+    if (!trimmed || trimmed === '0' || trimmed === '00:00' || trimmed.toLowerCase() === 'false') return false;
+    const num = Number(trimmed);
+    if (!isNaN(num)) return num > 0;
+    return true;
+  }
+  return false;
+};
+
 /**
  * Generate habit summary metrics for a given habit and logs
  */
 const buildHabitSummary = (habit, userMonthLogs, activeDaysInMonth) => {
   const habitId = (habit.id || habit._id).toString();
   const habitLogs = userMonthLogs.filter((l) => (l.habitId || '').toString() === habitId);
-  const completedLogs = habitLogs.filter(
-    (l) =>
-      Boolean(l.isCompleted) ||
-      (typeof l.value === 'number' && l.value > 0) ||
-      (typeof l.value === 'string' && l.value.trim().length > 0)
-  );
-  const completedDaysCount = completedLogs.length;
+  const completedLogs = habitLogs.filter(isLogDone);
+  const completedDaysCount = new Set(completedLogs.map((l) => l.date)).size;
   const completionPercentage = Math.min(100, Math.round((completedDaysCount / activeDaysInMonth) * 100));
 
   let typeDetails = {};

@@ -25,6 +25,21 @@ const MONTH_NAMES = [
   'ડિસેમ્બર'
 ];
 
+// Helper: check if a habit log represents a truly completed check-in
+const isLogDone = (l) => {
+  if (!l) return false;
+  if (l.isCompleted === true || l.isCompleted === 1 || l.isCompleted === 'true') return true;
+  if (typeof l.value === 'number') return l.value > 0;
+  if (typeof l.value === 'string') {
+    const trimmed = l.value.trim();
+    if (!trimmed || trimmed === '0' || trimmed === '00:00' || trimmed.toLowerCase() === 'false') return false;
+    const num = Number(trimmed);
+    if (!isNaN(num)) return num > 0;
+    return true;
+  }
+  return false;
+};
+
 // Helper: parse HH:MM AM/PM to minutes from midnight
 const timeStringToMinutes = (timeStr) => {
   if (!timeStr || typeof timeStr !== 'string') return null;
@@ -2812,14 +2827,8 @@ export const compileGroupMonthlyReports = async (group, targetMonthStr) => {
       const habitId = (habit.id || habit._id).toString();
       const habitLogs = memberLogs.filter((l) => (l.habitId || '').toString() === habitId);
 
-      const completedLogs = habitLogs.filter(
-        (l) =>
-          Boolean(l.isCompleted) ||
-          (typeof l.value === 'number' && l.value > 0) ||
-          (typeof l.value === 'string' && l.value.trim().length > 0)
-      );
-
-      const completedDaysCount = completedLogs.length;
+      const completedLogs = habitLogs.filter(isLogDone);
+      const completedDaysCount = new Set(completedLogs.map((l) => l.date)).size;
       const completionPercentage = Math.min(100, Math.round((completedDaysCount / activeDaysInMonth) * 100));
 
       let typeDetails = {};
@@ -2904,12 +2913,7 @@ export const compileGroupMonthlyReports = async (group, targetMonthStr) => {
     // Compute Discipline Score (days with 100% group habits completed)
     const logsByDate = {};
     memberLogs.forEach((l) => {
-      const isDone =
-        Boolean(l.isCompleted) ||
-        (typeof l.value === 'number' && l.value > 0) ||
-        (typeof l.value === 'string' && l.value.trim().length > 0);
-
-      if (isDone && l.date) {
+      if (isLogDone(l) && l.date) {
         if (!logsByDate[l.date]) logsByDate[l.date] = new Set();
         logsByDate[l.date].add((l.habitId || '').toString());
       }
@@ -2935,13 +2939,13 @@ export const compileGroupMonthlyReports = async (group, targetMonthStr) => {
       (r) => (r.groupId || '').toString() === groupId && (r.userId || '').toString() === memberUserId && r.month === targetMonthStr
     );
 
-    let disciplineScore = perfectDays;
+    let activeDays = isCurrentMonth ? activeDaysInMonth : (savedMemberReport?.activeDaysInMonth || activeDaysInMonth);
+    let disciplineScore = Math.min(activeDays, perfectDays);
     let overallRate = overallCompletionRate;
-    let activeDays = activeDaysInMonth;
     let finalHabitSummaries = habitSummaries;
 
-    if (memberLogs.length === 0 && savedMemberReport && savedMemberReport.habitSummaries?.length > 0) {
-      disciplineScore = savedMemberReport.overallStats?.disciplineScore ?? savedMemberReport.overallStats?.perfectDays ?? 0;
+    if (!isCurrentMonth && memberLogs.length === 0 && savedMemberReport && savedMemberReport.habitSummaries?.length > 0) {
+      disciplineScore = Math.min(activeDays, savedMemberReport.overallStats?.disciplineScore ?? savedMemberReport.overallStats?.perfectDays ?? 0);
       overallRate = savedMemberReport.overallStats?.overallCompletionRate ?? 0;
       activeDays = savedMemberReport.activeDaysInMonth || activeDaysInMonth;
       finalHabitSummaries = savedMemberReport.habitSummaries;
@@ -3045,14 +3049,8 @@ export const compileGroupTaskLeaderboards = async (group, targetMonthStr) => {
         return logDay >= 1 && logDay <= maxDayToCount && (l.habitId || '').toString() === habitId;
       });
 
-      const completedLogs = memberLogs.filter(
-        (l) =>
-          Boolean(l.isCompleted) ||
-          (typeof l.value === 'number' && l.value > 0) ||
-          (typeof l.value === 'string' && l.value.trim().length > 0)
-      );
-
-      const completedDaysCount = completedLogs.length;
+      const completedLogs = memberLogs.filter(isLogDone);
+      const completedDaysCount = new Set(completedLogs.map((l) => l.date)).size;
       const completionPercentage = Math.min(100, Math.round((completedDaysCount / activeDaysInMonth) * 100));
 
       let totalMetricValue = 0;

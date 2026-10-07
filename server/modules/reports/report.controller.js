@@ -35,6 +35,21 @@ const formatDate = (year, month, day) => {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 };
 
+// Helper: check if a habit log represents a truly completed check-in
+export const isLogDone = (l) => {
+  if (!l) return false;
+  if (l.isCompleted === true || l.isCompleted === 1 || l.isCompleted === 'true') return true;
+  if (typeof l.value === 'number') return l.value > 0;
+  if (typeof l.value === 'string') {
+    const trimmed = l.value.trim();
+    if (!trimmed || trimmed === '0' || trimmed === '00:00' || trimmed.toLowerCase() === 'false') return false;
+    const num = Number(trimmed);
+    if (!isNaN(num)) return num > 0;
+    return true;
+  }
+  return false;
+};
+
 /**
  * Compute and persist user's all-time Discipline Score in database
  * (+1 for each distinct day where 100% of all assigned habits were completed)
@@ -93,12 +108,7 @@ export const computeAndSaveUserDisciplineScore = async (userId) => {
   // Group completed distinct habit IDs by date
   const completedHabitsByDate = {};
   for (const log of userLogs) {
-    const isDone =
-      Boolean(log.isCompleted) ||
-      (typeof log.value === 'number' && log.value > 0) ||
-      (typeof log.value === 'string' && log.value.trim().length > 0);
-
-    if (isDone && log.date) {
+    if (isLogDone(log) && log.date) {
       if (!completedHabitsByDate[log.date]) {
         completedHabitsByDate[log.date] = new Set();
       }
@@ -241,13 +251,8 @@ export const getMonthlyReport = async (req, res) => {
       const habitId = (habit.id || habit._id).toString();
       const habitLogs = monthLogs.filter((l) => (l.habitId || '').toString() === habitId);
 
-      const completedLogs = habitLogs.filter(
-        (l) =>
-          Boolean(l.isCompleted) ||
-          (typeof l.value === 'number' && l.value > 0) ||
-          (typeof l.value === 'string' && l.value.trim().length > 0)
-      );
-      const completedDaysCount = completedLogs.length;
+      const completedLogs = habitLogs.filter(isLogDone);
+      const completedDaysCount = new Set(completedLogs.map((l) => l.date)).size;
       const completionPercentage = Math.min(100, Math.round((completedDaysCount / activeDaysInMonth) * 100));
 
       let typeDetails = {};
@@ -369,12 +374,7 @@ export const getMonthlyReport = async (req, res) => {
 
     const completedHabitsByDateMonth = {};
     for (const log of monthLogs) {
-      const isDone =
-        Boolean(log.isCompleted) ||
-        (typeof log.value === 'number' && log.value > 0) ||
-        (typeof log.value === 'string' && log.value.trim().length > 0);
-
-      if (isDone && log.date) {
+      if (isLogDone(log) && log.date) {
         if (!completedHabitsByDateMonth[log.date]) {
           completedHabitsByDateMonth[log.date] = new Set();
         }
@@ -570,7 +570,9 @@ export const getGroupMonthlySummary = async (req, res) => {
         (r) => (r.userId || '').toString() === memberUserId
       );
 
-      const activeDays = savedMemberReport?.activeDaysInMonth || Math.max(1, maxDayToCount);
+      const activeDays = isCurrentMonth
+        ? Math.max(1, maxDayToCount)
+        : (savedMemberReport?.activeDaysInMonth || Math.max(1, maxDayToCount));
 
       const memberLogs = relevantLogs.filter((l) => {
         if ((l.userId || '').toString() !== memberUserId || !l.date || !l.date.startsWith(targetMonthStr)) {
@@ -579,22 +581,12 @@ export const getGroupMonthlySummary = async (req, res) => {
         const logDay = parseInt(l.date.split('-')[2], 10);
         return logDay >= 1 && logDay <= maxDayToCount;
       });
-      const completedLogs = memberLogs.filter(
-        (l) =>
-          Boolean(l.isCompleted) ||
-          (typeof l.value === 'number' && l.value > 0) ||
-          (typeof l.value === 'string' && l.value.trim().length > 0)
-      );
+      const completedLogs = memberLogs.filter(isLogDone);
 
       // Group logs by date to compute perfect days
       const memberLogsByDate = {};
       memberLogs.forEach((l) => {
-        const isDone =
-          Boolean(l.isCompleted) ||
-          (typeof l.value === 'number' && l.value > 0) ||
-          (typeof l.value === 'string' && l.value.trim().length > 0);
-
-        if (isDone && l.date) {
+        if (isLogDone(l) && l.date) {
           if (!memberLogsByDate[l.date]) memberLogsByDate[l.date] = new Set();
           memberLogsByDate[l.date].add((l.habitId || '').toString());
         }
@@ -605,7 +597,7 @@ export const getGroupMonthlySummary = async (req, res) => {
         for (const dateStr in memberLogsByDate) {
           const completedSet = memberLogsByDate[dateStr];
           const count = groupHabitIds.filter((hId) => completedSet.has(hId)).length;
-          if (count >= groupHabitIds.length) {
+          if (count >= groupHabitIds.length && count > 0) {
             perfectDays += 1;
           }
         }
@@ -615,10 +607,18 @@ export const getGroupMonthlySummary = async (req, res) => {
       if (!isCurrentMonth && memberLogs.length === 0 && savedMemberReport) {
         perfectDays = savedMemberReport.overallStats?.perfectDays || savedMemberReport.overallStats?.disciplineScore || 0;
       }
+      perfectDays = Math.min(activeDays, perfectDays);
 
+      // Deduplicate completed task checks by date + habitId
+      const uniqueCompletedKeys = new Set(
+        completedLogs
+          .filter((l) => l.date && l.habitId && groupHabitIds.includes((l.habitId || '').toString()))
+          .map((l) => `${l.date}_${l.habitId}`)
+      );
+      const uniqueCompletedCount = uniqueCompletedKeys.size;
       const totalExpectedTasks = groupHabits.length * activeDays;
       let completionRate =
-        totalExpectedTasks > 0 ? Math.min(100, Math.round((completedLogs.length / totalExpectedTasks) * 100)) : 0;
+        totalExpectedTasks > 0 ? Math.min(100, Math.round((uniqueCompletedCount / totalExpectedTasks) * 100)) : 0;
 
       if (!isCurrentMonth && memberLogs.length === 0 && savedMemberReport) {
         completionRate = savedMemberReport.overallStats?.overallCompletionRate || 0;
@@ -633,7 +633,7 @@ export const getGroupMonthlySummary = async (req, res) => {
         activeDays,
         perfectDays,
         disciplineScore: perfectDays,
-        completedTasksCount: completedLogs.length || (savedMemberReport ? Math.round((completionRate * totalExpectedTasks) / 100) : 0),
+        completedTasksCount: uniqueCompletedCount || (savedMemberReport ? Math.round((completionRate * totalExpectedTasks) / 100) : 0),
         totalExpectedTasks,
         completionRate
       };

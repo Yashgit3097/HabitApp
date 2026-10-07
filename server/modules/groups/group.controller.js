@@ -136,10 +136,20 @@ export const getGroupDetails = async (req, res) => {
     const groupHabitIds = allHabits.map((h) => (h.id || h._id).toString());
     // Fetch from habitLogs collection (Only stored when user actually logs/checks-in)
     const habitLogs = (await collections.habitLogs.find({ date: targetDate })) || [];
-    const logsForGroupHabits = habitLogs.filter((l) => {
+    // Deduplicate by userId + habitId (keep the latest/completed one)
+    const logMap = new Map();
+    habitLogs.forEach((l) => {
       const itemHabitId = (l.habitId || l.habitId?.toString() || '');
-      return groupHabitIds.includes(itemHabitId);
+      const itemUserId = (l.userId || l.userId?.toString() || '');
+      if (groupHabitIds.includes(itemHabitId)) {
+        const key = `${itemUserId}_${itemHabitId}`;
+        const existing = logMap.get(key);
+        if (!existing || (!existing.isCompleted && l.isCompleted)) {
+          logMap.set(key, l);
+        }
+      }
     });
+    const logsForGroupHabits = Array.from(logMap.values());
 
     res.status(200).json({
       success: true,

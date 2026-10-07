@@ -118,26 +118,42 @@ export const GroupAnalyticsCard = ({ groupId, group, habits = [], members = [], 
   const totalMembers = members.length;
   const totalPossibleChecks = totalTasks * totalMembers;
 
-  const totalCompletedChecks = todayLogs.filter(
-    (l) => l.isCompleted && habits.some((h) => (h.id || h._id) === l.habitId)
-  ).length;
-
-  const groupCompletionRate = totalPossibleChecks > 0
-    ? Math.round((totalCompletedChecks / totalPossibleChecks) * 100)
-    : 0;
-
-  // Calculate member rankings
+  // Calculate member rankings with habit deduplication
   const memberRankings = members.map((m) => {
-    const memberDone = todayLogs.filter(
-      (l) => l.userId === m.userId && l.isCompleted && habits.some((h) => (h.id || h._id) === l.habitId)
-    ).length;
-    const rate = totalTasks > 0 ? Math.round((memberDone / totalTasks) * 100) : 0;
+    const memberIdStr = (m.userId || m.id || m._id)?.toString();
+    const completedHabitIds = new Set();
+
+    todayLogs.forEach((l) => {
+      const logUserId = (l.userId || '').toString();
+      const logHabitId = (l.habitId || '').toString();
+      const isCompleted =
+        Boolean(l.isCompleted) ||
+        (typeof l.value === 'number' && l.value > 0) ||
+        (typeof l.value === 'string' &&
+          l.value.trim().length > 0 &&
+          l.value.trim() !== '0' &&
+          l.value.trim() !== '00:00' &&
+          l.value.trim().toLowerCase() !== 'false');
+
+      if (logUserId === memberIdStr && isCompleted && habits.some((h) => (h.id || h._id)?.toString() === logHabitId)) {
+        completedHabitIds.add(logHabitId);
+      }
+    });
+
+    const memberDone = completedHabitIds.size;
+    const rate = totalTasks > 0 ? Math.min(100, Math.round((memberDone / totalTasks) * 100)) : 0;
     return {
       ...m,
       completedCount: memberDone,
       completionRate: rate
     };
-  }).sort((a, b) => b.completedCount - a.completedCount);
+  }).sort((a, b) => b.completedCount - a.completedCount || b.completionRate - a.completionRate);
+
+  const totalCompletedChecks = memberRankings.reduce((sum, m) => sum + m.completedCount, 0);
+
+  const groupCompletionRate = totalPossibleChecks > 0
+    ? Math.min(100, Math.round((totalCompletedChecks / totalPossibleChecks) * 100))
+    : 0;
 
   return (
     <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-xs border border-emerald-100 space-y-4">

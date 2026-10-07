@@ -43,7 +43,15 @@ export const GroupMatrixBoard = ({
       const log = todayLogs.find(
         (l) => l.habitId?.toString() === hId && (l.userId?.toString() === memberId)
       );
-      return !!log?.isCompleted || (typeof log?.value === 'number' && log.value > 0) || (typeof log?.value === 'string' && log.value.trim().length > 0);
+      return (
+        !!log?.isCompleted ||
+        (typeof log?.value === 'number' && log.value > 0) ||
+        (typeof log?.value === 'string' &&
+          log.value.trim().length > 0 &&
+          log.value.trim() !== '0' &&
+          log.value.trim() !== '00:00' &&
+          log.value.trim().toLowerCase() !== 'false')
+      );
     }).length;
 
     const total = habits.length;
@@ -155,7 +163,14 @@ export const GroupMatrixBoard = ({
             const log = todayLogs.find(
               (l) => l.habitId?.toString() === habitId && (l.userId?.toString() === memberId)
             );
-            const isCompleted = !!log?.isCompleted || (typeof log?.value === 'number' && log.value > 0) || (typeof log?.value === 'string' && log.value.trim().length > 0);
+            const isCompleted =
+              !!log?.isCompleted ||
+              (typeof log?.value === 'number' && log.value > 0) ||
+              (typeof log?.value === 'string' &&
+                log.value.trim().length > 0 &&
+                log.value.trim() !== '0' &&
+                log.value.trim() !== '00:00' &&
+                log.value.trim().toLowerCase() !== 'false');
 
             if (isCompleted) {
               completedMembers.push({ ...member, log });

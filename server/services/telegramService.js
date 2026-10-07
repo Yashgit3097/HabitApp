@@ -22,6 +22,21 @@ const GUJARATI_MONTH_NAMES = [
   'ડિસેમ્બર'
 ];
 
+// Helper: check if a habit log represents a truly completed check-in
+const isLogDone = (l) => {
+  if (!l) return false;
+  if (l.isCompleted === true || l.isCompleted === 1 || l.isCompleted === 'true') return true;
+  if (typeof l.value === 'number') return l.value > 0;
+  if (typeof l.value === 'string') {
+    const trimmed = l.value.trim();
+    if (!trimmed || trimmed === '0' || trimmed === '00:00' || trimmed.toLowerCase() === 'false') return false;
+    const num = Number(trimmed);
+    if (!isNaN(num)) return num > 0;
+    return true;
+  }
+  return false;
+};
+
 /**
  * Get current Indian Standard Time (IST, UTC+5:30) Date
  */
@@ -222,11 +237,7 @@ export const sendDailyGroupComplianceReport = async (targetDateStr = null) => {
         const userCompletedHabitIds = new Set();
         groupDayLogs.forEach((l) => {
           if ((l.userId || '').toString() === memberUserId) {
-            const isDone =
-              Boolean(l.isCompleted) ||
-              (typeof l.value === 'number' && l.value > 0) ||
-              (typeof l.value === 'string' && l.value.trim().length > 0);
-            if (isDone) {
+            if (isLogDone(l)) {
               userCompletedHabitIds.add((l.habitId || '').toString());
             }
           }
@@ -610,14 +621,9 @@ export const getUserMonthlyReportText = async (userIdentifier, targetMonthStr = 
       const habitId = (habit.id || habit._id).toString();
       const habitLogs = monthLogs.filter((l) => (l.habitId || '').toString() === habitId);
 
-      const completedLogs = habitLogs.filter(
-        (l) =>
-          Boolean(l.isCompleted) ||
-          (typeof l.value === 'number' && l.value > 0) ||
-          (typeof l.value === 'string' && l.value.trim().length > 0)
-      );
+      const completedLogs = habitLogs.filter(isLogDone);
 
-      const completedCount = completedLogs.length;
+      const completedCount = new Set(completedLogs.map((l) => l.date)).size;
       const percentage = Math.min(100, Math.round((completedCount / activeDaysInMonth) * 100));
 
       let metricText = '';
@@ -676,11 +682,7 @@ export const getUserMonthlyReportText = async (userIdentifier, targetMonthStr = 
     const userHabitIds = userHabits.map((h) => (h.id || h._id).toString());
     const logsByDate = {};
     monthLogs.forEach((l) => {
-      const isDone =
-        Boolean(l.isCompleted) ||
-        (typeof l.value === 'number' && l.value > 0) ||
-        (typeof l.value === 'string' && l.value.trim().length > 0);
-      if (isDone && l.date) {
+      if (isLogDone(l) && l.date) {
         if (!logsByDate[l.date]) logsByDate[l.date] = new Set();
         logsByDate[l.date].add((l.habitId || '').toString());
       }
@@ -706,9 +708,7 @@ export const getUserMonthlyReportText = async (userIdentifier, targetMonthStr = 
     const todayStr = getISTDateString(now);
     const todayLogs = monthLogs.filter((l) => l.date === todayStr);
     const todayDoneHabitIds = new Set(
-      todayLogs
-        .filter((l) => Boolean(l.isCompleted) || (typeof l.value === 'number' && l.value > 0) || (typeof l.value === 'string' && l.value.trim().length > 0))
-        .map((l) => (l.habitId || '').toString())
+      todayLogs.filter(isLogDone).map((l) => (l.habitId || '').toString())
     );
     const todayDoneCount = todayDoneHabitIds.size;
 

@@ -63,7 +63,14 @@ export const MemberReportModal = ({
     );
     return {
       habit,
-      isCompleted: !!log?.isCompleted || (typeof log?.value === 'number' && log.value > 0) || (typeof log?.value === 'string' && log.value.trim().length > 0),
+      isCompleted:
+        !!log?.isCompleted ||
+        (typeof log?.value === 'number' && log.value > 0) ||
+        (typeof log?.value === 'string' &&
+          log.value.trim().length > 0 &&
+          log.value.trim() !== '0' &&
+          log.value.trim() !== '00:00' &&
+          log.value.trim().toLowerCase() !== 'false'),
       value: log?.value || 0,
       notes: log?.notes || '',
       loggedAt: log?.loggedAt
